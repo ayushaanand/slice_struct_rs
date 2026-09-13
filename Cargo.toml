@@ -3,11 +3,11 @@ members = [".", "slice_struct_macro"]
 
 [package]
 name = "slice_struct"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "A macro for structs with multiple inline, variable-length slices packed into a single heap allocation"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/ayush/slice_struct"
+repository = "https://github.com/ayushaanand/slice_struct_rs.git"
 keywords = ["slice", "allocation", "macro", "dst", "memory"]
 categories = ["memory-management", "rust-patterns"]
 
