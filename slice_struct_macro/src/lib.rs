@@ -29,12 +29,11 @@ use syn::{ItemStruct, parse_macro_input};
 ///
 /// # Generated API
 ///
-/// For each `#[slice] foo: T` field the macro generates:
+/// For each `#[slice] foo: T` field, the macro generates an actual field:
+/// `foo: SliceHandle<T>`.
 ///
-/// ```rust,ignore
-/// fn foo(&self)         -> &[T]
-/// fn foo_mut(&mut self) -> &mut [T]
-/// ```
+/// This field implements `Deref<Target = [T]>`.
+/// A `.project()` method is generated for safe disjoint mutable borrowing.
 ///
 /// Two constructors are generated for the whole struct:
 ///
@@ -51,8 +50,8 @@ use syn::{ItemStruct, parse_macro_input};
 ///     [10_u8, 20, 30].into_iter(),  // payload
 ///     100_u32..104,                 // tags — any ExactSizeIterator
 /// );
-/// assert_eq!(p.payload(), &[10, 20, 30]);
-/// assert_eq!(p.tags(),    &[100, 101, 102, 103]);
+/// assert_eq!(&*p.payload, &[10, 20, 30]);
+/// assert_eq!(&*p.tags,    &[100, 101, 102, 103]);
 /// ```
 ///
 /// Works with `Vec::into_iter()`, arrays, `Range`, mapped iterators, or
@@ -64,7 +63,7 @@ use syn::{ItemStruct, parse_macro_input};
 /// ```rust,ignore
 /// // Like vec![0_u8; 8] and vec![0_u32; 4], written directly in-place.
 /// let p = Packet::new_box_def(42, (0_u8, 8), (0_u32, 4));
-/// assert_eq!(p.payload(), &[0_u8; 8]);
+/// assert_eq!(&*p.payload, &[0_u8; 8]);
 /// ```
 ///
 /// Requires `Clone` on each slice element type.
@@ -100,8 +99,10 @@ pub fn slice_struct(_attr: TokenStream, item: TokenStream) -> TokenStream {
         let ident = field.ident.clone().unwrap();
         let ty = field.ty.clone();
 
+        let vis = field.vis.clone();
+
         if is_slice {
-            slice_fields.push((ident, ty));
+            slice_fields.push((ident, ty, vis));
         } else {
             sized_fields.push(field.clone());
         }
@@ -121,30 +122,33 @@ pub fn slice_struct(_attr: TokenStream, item: TokenStream) -> TokenStream {
         actual_fields.extend(quote! { #fvis #ident: #ty, });
     }
 
-    for (ident, ty) in &slice_fields {
-        let len_ident = format_ident!("__{}_len", ident);
-        let align_ident = format_ident!("__{}_align", ident);
-        prefix_fields.extend(quote! { #len_ident: usize, #align_ident: [#ty; 0], });
-        actual_fields.extend(quote! { #len_ident: usize, #align_ident: [#ty; 0], });
+    for (ident, ty, fvis) in &slice_fields {
+        prefix_fields.extend(quote! { #fvis #ident: ::slice_struct::SliceHandle<#ty>, });
+        actual_fields.extend(quote! { #fvis #ident: ::slice_struct::SliceHandle<#ty>, });
     }
 
-    let data_field = quote! { __data: [::core::mem::MaybeUninit<u8>] };
+    let data_field = quote! {
+        #[doc(hidden)]
+        pub __pin: ::core::marker::PhantomPinned,
+        #[doc(hidden)]
+        pub __data: [::core::mem::MaybeUninit<u8>]
+    };
 
     // ── __layout: compute Layout + byte offsets for each slice ─────────────
     let len_idents_only: Vec<_> = slice_fields
         .iter()
-        .map(|(id, _)| format_ident!("{}_len", id))
+        .map(|(id, _, _)| format_ident!("{}_len", id))
         .collect();
     let offset_idents: Vec<_> = slice_fields
         .iter()
-        .map(|(id, _)| format_ident!("{}_offset", id))
+        .map(|(id, _, _)| format_ident!("{}_offset", id))
         .collect();
     let layout_ret_types: Vec<_> = slice_fields.iter().map(|_| quote!(usize)).collect();
 
     let mut layout_stmts = quote! {
         let layout = ::std::alloc::Layout::new::<#sized_prefix_ident #ty_generics>();
     };
-    for (ident, ty) in &slice_fields {
+    for (ident, ty, _) in &slice_fields {
         let len_ident = format_ident!("{}_len", ident);
         let offset_ident = format_ident!("{}_offset", ident);
         layout_stmts.extend(quote! {
@@ -156,44 +160,45 @@ pub fn slice_struct(_attr: TokenStream, item: TokenStream) -> TokenStream {
         (layout.pad_to_align(), #(#offset_idents),*)
     });
 
-    // ── Slice getters / setters ────────────────────────────────────────────
-    let mut getters = quote! {};
-    for (i, (ident, ty)) in slice_fields.iter().enumerate() {
-        let len_ident = format_ident!("__{}_len", ident);
-        let mut offset_vars = vec![quote!(_); slice_fields.len()];
-        offset_vars[i] = quote!(offset);
+    let mut proj_generics = input.generics.clone();
+    proj_generics.params.insert(0, ::syn::parse_quote!('__a));
+    let (proj_impl_generics, proj_ty_generics, _) = proj_generics.split_for_impl();
 
-        let len_args: Vec<_> = slice_fields
-            .iter()
-            .map(|(id, _)| {
-                let l = format_ident!("__{}_len", id);
-                quote!(self.#l)
-            })
-            .collect();
+    let proj_ident = format_ident!("{}Projection", struct_name);
+    let mut proj_fields = quote! {};
+    let mut proj_init = quote! {};
 
-        let mut_ident = format_ident!("{}_mut", ident);
-        getters.extend(quote! {
-            /// Returns a shared reference to the `#ident` slice.
-            #vis fn #ident(&self) -> &[#ty] {
-                let (_, #(#offset_vars),*) = Self::__layout(#(#len_args),*);
-                let ptr = self as *const Self as *const u8;
-                unsafe {
-                    let field_ptr = ptr.add(offset).cast::<#ty>();
-                    ::core::slice::from_raw_parts(field_ptr, self.#len_ident)
-                }
-            }
-
-            /// Returns a mutable reference to the `#ident` slice.
-            #vis fn #mut_ident(&mut self) -> &mut [#ty] {
-                let (_, #(#offset_vars),*) = Self::__layout(#(#len_args),*);
-                let ptr = self as *mut Self as *mut u8;
-                unsafe {
-                    let field_ptr = ptr.add(offset).cast::<#ty>();
-                    ::core::slice::from_raw_parts_mut(field_ptr, self.#len_ident)
-                }
-            }
-        });
+    for field in &sized_fields {
+        let ident = &field.ident;
+        let ty = &field.ty;
+        let fvis = &field.vis;
+        proj_fields.extend(quote! { #fvis #ident: &'__a mut #ty, });
+        proj_init.extend(quote! { #ident: &mut this.#ident, });
     }
+
+    for (ident, ty, fvis) in &slice_fields {
+        proj_fields.extend(
+            quote! { #fvis #ident: ::core::pin::Pin<&'__a mut ::slice_struct::SliceHandle<#ty>>, },
+        );
+        proj_init.extend(quote! { #ident: ::core::pin::Pin::new_unchecked(&mut this.#ident), });
+    }
+
+    let projection_code = quote! {
+        #vis struct #proj_ident #proj_impl_generics #where_clause {
+            #proj_fields
+        }
+
+        impl #impl_generics #struct_name #ty_generics #where_clause {
+            #vis fn project<'__a>(self: ::core::pin::Pin<&'__a mut Self>) -> #proj_ident #proj_ty_generics {
+                unsafe {
+                    let this = self.get_unchecked_mut();
+                    #proj_ident {
+                        #proj_init
+                    }
+                }
+            }
+        }
+    };
 
     // ── Shared helpers ─────────────────────────────────────────────────────
     let mut sized_args = quote! {};
@@ -203,17 +208,25 @@ pub fn slice_struct(_attr: TokenStream, item: TokenStream) -> TokenStream {
         sized_args.extend(quote! { #ident: #ty, });
     }
 
+    prefix_fields.extend(quote! {
+        __pin: ::core::marker::PhantomPinned,
+    });
+
     let mut prefix_init = quote! {};
     for field in &sized_fields {
         let ident = &field.ident;
         prefix_init.extend(quote! { #ident, });
     }
-    for (ident, _) in &slice_fields {
-        let len_struct_ident = format_ident!("__{}_len", ident);
-        let align_ident = format_ident!("__{}_align", ident);
+    for (ident, ty, _) in &slice_fields {
         let len_ident = format_ident!("{}_len", ident);
-        prefix_init.extend(quote! { #len_struct_ident: #len_ident, #align_ident: [], });
+        let offset_ident = format_ident!("{}_offset", ident);
+        prefix_init.extend(quote! { 
+            #ident: ::slice_struct::SliceHandle::__new_unchecked(ptr.add(#offset_ident).cast::<#ty>(), #len_ident), 
+        });
     }
+    prefix_init.extend(quote! {
+        __pin: ::core::marker::PhantomPinned,
+    });
 
     let alloc_block = quote! {
         let (layout, #(#offset_idents),*) = Self::__layout(#(#len_idents_only),*);
@@ -234,21 +247,21 @@ pub fn slice_struct(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // ── new_box_iter ───────────────────────────────────────────────────────
     let mut iter_args = sized_args.clone();
     let mut iter_param_idents = vec![];
-    for (ident, ty) in &slice_fields {
+    for (ident, ty, _) in &slice_fields {
         let iter_param = format_ident!("{}_iter", ident);
         iter_args.extend(quote! { #iter_param: impl ::core::iter::ExactSizeIterator<Item = #ty>, });
         iter_param_idents.push(iter_param);
     }
 
     let mut iter_len_vars = quote! {};
-    for (i, (ident, _)) in slice_fields.iter().enumerate() {
+    for (i, (ident, _, _)) in slice_fields.iter().enumerate() {
         let len_ident = format_ident!("{}_len", ident);
         let iter_param = &iter_param_idents[i];
         iter_len_vars.extend(quote! { let #len_ident = #iter_param.len(); });
     }
 
     let mut iter_write_slices = quote! {};
-    for (i, (_, ty)) in slice_fields.iter().enumerate() {
+    for (i, (_, ty, _)) in slice_fields.iter().enumerate() {
         let o_ident = &offset_idents[i];
         let iter_param = &iter_param_idents[i];
         iter_write_slices.extend(quote! {
@@ -262,23 +275,27 @@ pub fn slice_struct(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // ── new_box_def ────────────────────────────────────────────────────────
     let mut def_args = sized_args.clone();
     let mut def_val_idents = vec![];
-    for (ident, ty) in &slice_fields {
+    for (ident, ty, _) in &slice_fields {
         let val_ident = format_ident!("{}_def", ident);
         def_args.extend(quote! { #val_ident: (#ty, usize), });
         def_val_idents.push(val_ident);
     }
 
     let mut def_len_vars = quote! {};
-    for (i, (ident, _)) in slice_fields.iter().enumerate() {
+    for (i, (ident, _, _)) in slice_fields.iter().enumerate() {
         let len_ident = format_ident!("{}_len", ident);
         let val_ident = &def_val_idents[i];
         def_len_vars.extend(quote! { let #len_ident = #val_ident.1; });
     }
 
     let mut def_write_slices = quote! {};
-    for (i, (_, ty)) in slice_fields.iter().enumerate() {
+    let mut def_where_bounds = vec![];
+    for (i, (_, ty, _)) in slice_fields.iter().enumerate() {
         let o_ident = &offset_idents[i];
         let val_ident = &def_val_idents[i];
+
+        def_where_bounds.push(quote! { #ty: ::core::clone::Clone });
+
         def_write_slices.extend(quote! {
             let (def_val, def_len) = #val_ident;
             let field_ptr = ptr.add(#o_ident).cast::<#ty>();
@@ -291,16 +308,6 @@ pub fn slice_struct(_attr: TokenStream, item: TokenStream) -> TokenStream {
         });
     }
 
-    // ── Drop ───────────────────────────────────────────────────────────────
-    let mut drop_stmts = quote! {};
-    for (ident, _) in &slice_fields {
-        let mut_ident = format_ident!("{}_mut", ident);
-        drop_stmts.extend(quote! {
-            unsafe { ::core::ptr::drop_in_place(self.#mut_ident()); }
-        });
-    }
-
-    // ── Emit ───────────────────────────────────────────────────────────────
     let expanded = quote! {
         #[repr(C)]
         #[doc(hidden)]
@@ -314,6 +321,8 @@ pub fn slice_struct(_attr: TokenStream, item: TokenStream) -> TokenStream {
             #data_field
         }
 
+        #projection_code
+
         impl #impl_generics #struct_name #ty_generics #where_clause {
             #[doc(hidden)]
             #[inline]
@@ -322,8 +331,6 @@ pub fn slice_struct(_attr: TokenStream, item: TokenStream) -> TokenStream {
             {
                 #layout_stmts
             }
-
-            #getters
 
             /// Construct a `Box<Self>` by draining one [`ExactSizeIterator`]
             /// per slice field.
@@ -334,12 +341,12 @@ pub fn slice_struct(_attr: TokenStream, item: TokenStream) -> TokenStream {
             /// # Panics
             ///
             /// Panics if the allocator returns null (out of memory).
-            #vis fn new_box_iter(#iter_args) -> ::std::boxed::Box<Self> {
+            #vis fn new_box_iter(#iter_args) -> ::core::pin::Pin<::std::boxed::Box<Self>> {
                 #iter_len_vars
                 unsafe {
                     #alloc_block
                     #iter_write_slices
-                    #seal_block
+                    ::core::pin::Pin::new_unchecked({ #seal_block })
                 }
             }
 
@@ -351,19 +358,16 @@ pub fn slice_struct(_attr: TokenStream, item: TokenStream) -> TokenStream {
             /// # Panics
             ///
             /// Panics if the allocator returns null (out of memory).
-            #vis fn new_box_def(#def_args) -> ::std::boxed::Box<Self> {
+            #vis fn new_box_def(#def_args) -> ::core::pin::Pin<::std::boxed::Box<Self>>
+            where
+                #(#def_where_bounds),*
+            {
                 #def_len_vars
                 unsafe {
                     #alloc_block
                     #def_write_slices
-                    #seal_block
+                    ::core::pin::Pin::new_unchecked({ #seal_block })
                 }
-            }
-        }
-
-        impl #impl_generics ::core::ops::Drop for #struct_name #ty_generics #where_clause {
-            fn drop(&mut self) {
-                #drop_stmts
             }
         }
     };
