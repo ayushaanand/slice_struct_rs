@@ -1,0 +1,17 @@
+[package]
+name = "slice_struct_macro"
+version = "0.1.0"
+edition = "2024"
+description = "Proc-macro implementation for slice_struct: packing multiple variable-length slices into a single heap allocation"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ayush/slice_struct"
+keywords = ["slice", "allocation", "macro", "dst", "memory"]
+categories = ["memory-management", "rust-patterns"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0.107"
+quote = "1.0.47"
+syn = { version = "3.0.5", features = ["full", "extra-traits", "visit", "visit-mut"] }
