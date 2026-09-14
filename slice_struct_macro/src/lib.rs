@@ -178,9 +178,13 @@ pub fn slice_struct(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     for (ident, ty, fvis) in &slice_fields {
         proj_fields.extend(
-            quote! { #fvis #ident: ::core::pin::Pin<&'__a mut ::slice_struct::SliceHandle<#ty>>, },
+            quote! { #fvis #ident: ::slice_struct::SliceBorrow<'__a, #ty>, },
         );
-        proj_init.extend(quote! { #ident: ::core::pin::Pin::new_unchecked(&mut this.#ident), });
+        proj_init.extend(quote! {
+            #ident: ::slice_struct::SliceBorrow::__from_handle(
+                ::core::pin::Pin::new_unchecked(&mut this.#ident)
+            ),
+        });
     }
 
     let projection_code = quote! {

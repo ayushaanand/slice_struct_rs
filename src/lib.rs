@@ -131,12 +131,56 @@ impl<T> core::ops::Drop for SliceHandle<T> {
     }
 }
 
+/// A temporary borrow of an inline slice field, produced by [`.project()`].
+///
+/// Implements both [`Deref`] and [`DerefMut`] to `[T]`, so you can index,
+/// iterate, or reborrow as `&[T]` or `&mut [T]` freely — without calling
+/// any extra method.
+///
+/// The key property: two `SliceBorrow`s from the same `.project()` call are
+/// **disjoint** — one can be borrowed immutably while another is borrowed
+/// mutably, at the same time.
+///
+/// [`.project()`]: the generated `project` method on the struct
+pub struct SliceBorrow<'a, T> {
+    ptr: NonNull<T>,
+    len: usize,
+    _marker: PhantomData<&'a mut [T]>,
+}
+
+impl<'a, T> SliceBorrow<'a, T> {
+    #[doc(hidden)]
+    #[inline]
+    /// # Safety
+    /// Caller must hold a `Pin<&'a mut SliceHandle<T>>` and must not alias
+    /// `ptr` for the duration of `'a`.
+    pub unsafe fn __from_handle(handle: Pin<&'a mut SliceHandle<T>>) -> Self {
+        let h = unsafe { handle.get_unchecked_mut() };
+        Self { ptr: h.ptr, len: h.len, _marker: PhantomData }
+    }
+}
+
+impl<'a, T> core::ops::Deref for SliceBorrow<'a, T> {
+    type Target = [T];
+    #[inline]
+    fn deref(&self) -> &[T] {
+        unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
+    }
+}
+
+impl<'a, T> core::ops::DerefMut for SliceBorrow<'a, T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut [T] {
+        unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[slice_struct]
-    struct S<T: Clone> {
+    struct Str<T: Clone> {
         a: u32,
         #[slice]
         b: T,
@@ -148,23 +192,38 @@ mod tests {
 
     #[test]
     fn test_iter_basic() {
-        let mut s = S::<i32>::new_box_iter(42, [1, 2, 3].into_iter(), [4, 5, 6, 7].into_iter());
+        let mut s = Str::<i32>::new_box_iter(42, [1, 2, 3].into_iter(), [4, 5, 6, 7].into_iter());
 
         assert_eq!(s.a, 42);
         assert_eq!(&*s.b, &[1, 2, 3]);
         assert_eq!(&*s.c, &[4, 5, 6, 7]);
 
+        // project() is the guard — get it once, borrow fields independently
         let mut proj = s.as_mut().project();
-        proj.b.as_mut_slice()[0] = 10;
-        proj.c.as_mut_slice()[1] = 99; // disjoint borrowing!
+        // direct indexing, no .as_mut_slice() needed
+        proj.b[0] = 10;
+        proj.c[1] = 99;
 
         assert_eq!(&*s.b, &[10, 2, 3]);
         assert_eq!(&*s.c, &[4, 99, 6, 7]);
     }
 
     #[test]
+    fn test_mixed_borrow() {
+        // The whole point: borrow b immutably AND c mutably at the same time
+        let mut s = Str::<i32>::new_box_iter(0, [10_i32, 20, 30].into_iter(), [1_u32, 2, 3].into_iter());
+        let mut proj = s.as_mut().project();
+
+        let b_ref: &[i32] = &proj.b;              // immutable borrow of b
+        proj.c[0] = b_ref[2] as u32 * 10;         // mutable borrow of c — simultaneous!
+
+        assert_eq!(&*s.b, &[10, 20, 30]);         // b is unchanged
+        assert_eq!(&*s.c, &[300, 2, 3]);          // c[0] got b[2]*10
+    }
+
+    #[test]
     fn test_iter_from_range() {
-        let s = S::<i32>::new_box_iter(0, (0..5).map(|x| x * x), 100_u32..104);
+        let s = Str::<i32>::new_box_iter(0, (0..5).map(|x| x * x), 100_u32..104);
 
         assert_eq!(&*s.b, &[0, 1, 4, 9, 16]);
         assert_eq!(&*s.c, &[100, 101, 102, 103]);
@@ -172,7 +231,7 @@ mod tests {
 
     #[test]
     fn test_iter_empty_slice() {
-        let s = S::<i32>::new_box_iter(99, [].into_iter(), [].into_iter());
+        let s = Str::<i32>::new_box_iter(99, [].into_iter(), [].into_iter());
         assert_eq!(s.a, 99);
         assert_eq!(&*s.b, &[]);
         assert_eq!(&*s.c, &[]);
@@ -182,7 +241,7 @@ mod tests {
 
     #[test]
     fn test_def_basic() {
-        let s = S::<i32>::new_box_def(1, (0, 4), (7, 3));
+        let s = Str::<i32>::new_box_def(1, (0, 4), (7, 3));
 
         assert_eq!(s.a, 1);
         assert_eq!(&*s.b, &[0, 0, 0, 0]);
@@ -191,7 +250,7 @@ mod tests {
 
     #[test]
     fn test_def_zero_len() {
-        let s = S::<i32>::new_box_def(5, (99, 0), (42, 0));
+        let s = Str::<i32>::new_box_def(5, (99, 0), (42, 0));
         assert_eq!(&*s.b, &[]);
         assert_eq!(&*s.c, &[]);
     }
@@ -260,7 +319,7 @@ mod edge_cases {
         assert_eq!(&*s.data, &[10, 20]);
         
         let mut proj = s.as_mut().project();
-        proj.data.as_mut_slice()[1] = 99;
+        proj.data[1] = 99;
         assert_eq!(&*s.data, &[10, 99]);
     }
 
