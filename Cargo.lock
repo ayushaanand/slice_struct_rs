@@ -22,14 +22,14 @@ dependencies = [
 
 [[package]]
 name = "slice_struct"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "slice_struct_macro",
 ]
 
 [[package]]
 name = "slice_struct_macro"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
