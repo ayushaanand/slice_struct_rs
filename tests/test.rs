@@ -10,15 +10,15 @@ struct Str<T: Clone> {
     c: u32,
 }
 
-// ── new_box_iter ─────────────────────────────────────────────────────────
+// ── init_iter ─────────────────────────────────────────────────────────
 
 #[test]
 fn test_iter_basic() {
-    let mut s = Str::<i32>::new_box_iter(42, [1, 2, 3].into_iter(), [4, 5, 6, 7].into_iter());
+    let mut s = Str::init_iter(42, [1i32, 2, 3].into_iter(), [4, 5, 6, 7].into_iter()).in_box();
 
     assert_eq!(*s.view().a, 42);
-    assert_eq!(s.view().b, &[1, 2, 3]);
-    assert_eq!(s.view().c, &[4, 5, 6, 7]);
+    assert_eq!(s.view().b, &[1i32, 2, 3]);
+    assert_eq!(s.view().c, &[4u32, 5, 6, 7]);
 
     let mut v = s.as_mut().view_mut();
     v.b[0] = 10;
@@ -30,7 +30,7 @@ fn test_iter_basic() {
 
 #[test]
 fn test_mixed_borrow() {
-    let mut s = Str::<i32>::new_box_iter(0, [10_i32, 20, 30].into_iter(), [1_u32, 2, 3].into_iter());
+    let mut s = Str::<i32>::init_iter(0, [10_i32, 20, 30].into_iter(), [1_u32, 2, 3].into_iter()).in_box();
     let mut v = s.as_mut().view_mut();
 
     let b_ref: &[i32] = &v.b;
@@ -42,24 +42,24 @@ fn test_mixed_borrow() {
 
 #[test]
 fn test_iter_from_range() {
-    let s = Str::<i32>::new_box_iter(0, (0..5).map(|x| x * x), 100_u32..104);
+    let s = Str::<i32>::init_iter(0, (0..5).map(|x| x * x), 100_u32..104).in_box();
     assert_eq!(s.view().b, &[0, 1, 4, 9, 16]);
     assert_eq!(s.view().c, &[100, 101, 102, 103]);
 }
 
 #[test]
 fn test_iter_empty_slice() {
-    let s = Str::<i32>::new_box_iter(99, [].into_iter(), [].into_iter());
+    let s = Str::<i32>::init_iter(99, [].into_iter(), [].into_iter()).in_box();
     assert_eq!(*s.view().a, 99);
     assert_eq!(s.view().b, &[]);
     assert_eq!(s.view().c, &[]);
 }
 
-// ── new_box_def ──────────────────────────────────────────────────────────
+// ── init_def ──────────────────────────────────────────────────────────
 
 #[test]
 fn test_def_basic() {
-    let s = Str::<i32>::new_box_def(1, (0, 4), (7, 3));
+    let s = Str::<i32>::init_def(1, (0, 4), (7, 3)).in_box();
     assert_eq!(*s.view().a, 1);
     assert_eq!(s.view().b, &[0, 0, 0, 0]);
     assert_eq!(s.view().c, &[7, 7, 7]);
@@ -67,7 +67,7 @@ fn test_def_basic() {
 
 #[test]
 fn test_def_zero_len() {
-    let s = Str::<i32>::new_box_def(5, (99, 0), (42, 0));
+    let s = Str::<i32>::init_def(5, (99, 0), (42, 0)).in_box();
     assert_eq!(s.view().b, &[]);
     assert_eq!(s.view().c, &[]);
 }
@@ -84,14 +84,14 @@ struct SStr {
 #[test]
 fn test_iter_drop() {
     let words = ["hello".to_string(), "world".to_string()];
-    let s = SStr::new_box_iter("first".to_string(), words.into_iter());
+    let s = SStr::init_iter("first".to_string(), words.into_iter()).in_box();
     assert_eq!(s.view().a, "first");
     assert_eq!(s.view().b, &["hello", "world"]);
 }
 
 #[test]
 fn test_def_drop() {
-    let s = SStr::new_box_def("first".to_string(), ("hello".to_string(), 3));
+    let s = SStr::init_def("first".to_string(), ("hello".to_string(), 3)).in_box();
     assert_eq!(s.view().b, &["hello", "hello", "hello"]);
 }
 
@@ -103,7 +103,7 @@ struct NoSlices {
 
 #[test]
 fn test_no_slices_iter() {
-    let mut s = NoSlices::new_box_iter(42, true);
+    let mut s = NoSlices::init_iter(42, true).in_box();
     assert_eq!(*s.view().a, 42);
     assert_eq!(*s.view().b, true);
     
@@ -114,7 +114,7 @@ fn test_no_slices_iter() {
 
 #[test]
 fn test_no_slices_def() {
-    let s = NoSlices::new_box_def(42, true);
+    let s = NoSlices::init_def(42, true).in_box();
     assert_eq!(*s.view().a, 42);
     assert_eq!(*s.view().b, true);
 }
@@ -126,7 +126,7 @@ struct OneSlice {
 
 #[test]
 fn test_only_one_slice_iter() {
-    let mut s = OneSlice::new_box_iter([10, 20].into_iter());
+    let mut s = OneSlice::init_iter([10, 20].into_iter()).in_box();
     assert_eq!(s.view().data, &[10, 20]);
     
     let mut v = s.as_mut().view_mut();
@@ -136,7 +136,7 @@ fn test_only_one_slice_iter() {
 
 #[test]
 fn test_only_one_slice_def() {
-    let s = OneSlice::new_box_def((5, 3));
+    let s = OneSlice::init_def((5, 3)).in_box();
     assert_eq!(s.view().data, &[5, 5, 5]);
 }
 
@@ -151,16 +151,16 @@ struct MixedEmpty {
 
 #[test]
 fn test_mixed_empty_and_full() {
-    let s = MixedEmpty::new_box_def((1, 0), (2, 5), (3, 0));
+    let s = MixedEmpty::init_def((1, 0), (2, 5), (3, 0)).in_box();
     assert_eq!(s.view().a, &[]);
     assert_eq!(s.view().b, &[2, 2, 2, 2, 2]);
     assert_eq!(s.view().c, &[]);
     
-    let s2 = MixedEmpty::new_box_iter(
+    let s2 = MixedEmpty::init_iter(
         [1, 2].into_iter(),
         [].into_iter(),
         [3, 4, 5].into_iter()
-    );
+    ).in_box();
     assert_eq!(s2.view().a, &[1, 2]);
     assert_eq!(s2.view().b, &[]);
     assert_eq!(s2.view().c, &[3, 4, 5]);
@@ -173,7 +173,7 @@ struct ZstStruct {
 
 #[test]
 fn test_zst() {
-    let s = ZstStruct::new_box_def(((), 100));
+    let s = ZstStruct::init_def(((), 100)).in_box();
     assert_eq!(s.view().zst.len(), 100);
 }
 
@@ -189,7 +189,7 @@ struct HighlyAligned {
 
 #[test]
 fn test_highly_aligned() {
-    let s = HighlyAligned::new_box_def(42, (Aligned64(99), 3));
+    let s = HighlyAligned::init_def(42, (Aligned64(99), 3)).in_box();
     assert_eq!(*s.view().a, 42);
     assert_eq!(s.view().data, &[Aligned64(99), Aligned64(99), Aligned64(99)]);
     
@@ -233,7 +233,7 @@ struct DropTest {
 fn test_exact_drop_count() {
     DROP_COUNT.store(0, Ordering::SeqCst);
     {
-        let s = DropTest::new_box_def((DropCounter(1), 5));
+        let s = DropTest::init_def((DropCounter(1), 5)).in_box();
         assert_eq!(s.view().items.len(), 5);
         assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 0); // None dropped yet
     }
@@ -274,7 +274,7 @@ struct IterTest {
 fn test_lying_iterator_long() {
     // Claims 5, but yields 10. Macro should only consume 5 and stop.
     let iter = BadIter { yields: 10, claims: 5 };
-    let s = IterTest::new_box_iter(iter);
+    let s = IterTest::init_iter(iter).in_box();
     assert_eq!(s.view().data.len(), 5);
 }
 
@@ -283,7 +283,7 @@ fn test_lying_iterator_long() {
 fn test_lying_iterator_short() {
     // Claims 10, but yields 5. Macro MUST panic to prevent uninitialized memory UB.
     let iter = BadIter { yields: 5, claims: 10 };
-    let _s = IterTest::new_box_iter(iter);
+    let _s = IterTest::init_iter(iter).in_box();
 }
 
 // ── Lifetimes and Generics ──────────────────────────────────────────────────
@@ -298,7 +298,7 @@ struct WithLifetimes<'a, T: Clone> {
 #[test]
 fn test_lifetimes_and_generics() {
     let local_str = String::from("hello");
-    let s = WithLifetimes::new_box_def(local_str.as_str(), (42_u32, 3));
+    let s = WithLifetimes::init_def(local_str.as_str(), (42_u32, 3)).in_box();
     assert_eq!(*s.view().prefix, "hello");
     assert_eq!(s.view().data, &[42, 42, 42]);
 }
@@ -320,13 +320,13 @@ fn test_kitchen_sink_layout() {
     // u8 -> u64 requires 7 bytes of padding.
     // u8 -> () requires 0 padding.
     // () -> u32 requires padding to reach 4-byte alignment.
-    let s = KitchenSink::new_box_def(
+    let s = KitchenSink::init_def(
         1,
         (2_u64, 3),
         (3_u8, 5),
         ((), 10),
         (5_u32, 2)
-    );
+    ).in_box();
     
     let v = s.view();
     assert_eq!(*v.a, 1);
@@ -340,7 +340,7 @@ fn test_kitchen_sink_layout() {
 
 #[test]
 fn test_multiple_simultaneous_views() {
-    let s = Str::<i32>::new_box_iter(10, [1, 2, 3].into_iter(), [4, 5].into_iter());
+    let s = Str::<i32>::init_iter(10, [1, 2, 3].into_iter(), [4, 5].into_iter()).in_box();
 
     // Two independent view() borrows can coexist — no reborrowing conflict.
     let v1 = s.view();
@@ -353,7 +353,7 @@ fn test_multiple_simultaneous_views() {
 
 #[test]
 fn test_view_mut_then_view() {
-    let mut s = Str::<i32>::new_box_iter(0, [1, 2, 3].into_iter(), [10].into_iter());
+    let mut s = Str::<i32>::init_iter(0, [1, 2, 3].into_iter(), [10].into_iter()).in_box();
     {
         let mut v = s.as_mut().view_mut();
         v.b[0] = 99;
@@ -365,7 +365,7 @@ fn test_view_mut_then_view() {
 
 #[test]
 fn test_slice_independence() {
-    let mut s = Str::<i32>::new_box_iter(0, [1, 2, 3].into_iter(), [10, 20, 30].into_iter());
+    let mut s = Str::<i32>::init_iter(0, [1, 2, 3].into_iter(), [10, 20, 30].into_iter()).in_box();
     let mut v = s.as_mut().view_mut();
 
     // Read c, write b — these are physically separate memory regions.
@@ -388,7 +388,7 @@ struct BigBuf {
 #[test]
 fn test_large_allocation() {
     const N: usize = 1 << 20; // 1 MiB of u8
-    let s = BigBuf::new_box_iter(0xdeadbeef, (0..N).map(|i| (i % 256) as u8));
+    let s = BigBuf::init_iter(0xdeadbeef, (0..N).map(|i| (i % 256) as u8)).in_box();
 
     assert_eq!(s.view().data.len(), N);
     assert_eq!(s.view().data[0],     0);
@@ -412,9 +412,9 @@ fn test_arc_element_drop() {
     assert_eq!(Arc::strong_count(&shared), 1);
 
     {
-        let s = ArcSlice::new_box_iter(
+        let s = ArcSlice::init_iter(
             [shared.clone(), shared.clone(), shared.clone()].into_iter()
-        );
+        ).in_box();
         assert_eq!(Arc::strong_count(&shared), 4); // 1 original + 3 in slice
         assert_eq!(*s.view().items[1], 42);
     }
@@ -475,7 +475,7 @@ fn test_panic_mid_iter_no_leak() {
     }
 
     let result = std::panic::catch_unwind(|| {
-        let _s = TrackedSlice::new_box_iter(TrackedPanicsAt { current: 0, panics_at: 3 });
+        let _s = TrackedSlice::init_iter(TrackedPanicsAt { current: 0, panics_at: 3 }).in_box();
     });
 
     assert!(result.is_err(), "should have panicked");
@@ -497,7 +497,7 @@ struct TwoAligned {
 
 #[test]
 fn test_two_aligned_slices() {
-    let s = TwoAligned::new_box_def(7, (A16(1), 4), (A32(2), 2));
+    let s = TwoAligned::init_def(7, (A16(1), 4), (A32(2), 2)).in_box();
     let ptr_a = s.view().a.as_ptr() as usize;
     let ptr_b = s.view().b.as_ptr() as usize;
     assert_eq!(ptr_a % 16, 0, "A16 slice not 16-byte aligned");
@@ -508,7 +508,7 @@ fn test_two_aligned_slices() {
 
 #[test]
 fn test_iter_mut_all_elements() {
-    let mut s = Str::<i32>::new_box_def(0, (1, 100), (2, 100));
+    let mut s = Str::<i32>::init_def(0, (1, 100), (2, 100)).in_box();
     {
         let mut v = s.as_mut().view_mut();
         v.b.iter_mut().enumerate().for_each(|(i, x)| *x = i as i32);
@@ -533,7 +533,7 @@ struct AllSized {
 
 #[test]
 fn test_all_sized_fields_read_write() {
-    let mut s = AllSized::new_box_def(1_i64, 3.14_f64, true);
+    let mut s = AllSized::init_def(1_i64, 3.14_f64, true).in_box();
     assert_eq!(*s.view().x, 1);
     assert!((s.view().y - 3.14).abs() < 1e-10);
     assert_eq!(*s.view().z, true);
@@ -557,7 +557,7 @@ fn test_sliceborrow_coercions() {
     fn takes_slice(s: &[i32]) -> i32 { s.iter().sum() }
     fn takes_mut_slice(s: &mut [i32]) { s.iter_mut().for_each(|x| *x *= 2); }
 
-    let mut s = Str::<i32>::new_box_iter(0, [1, 2, 3, 4].into_iter(), [0].into_iter());
+    let mut s = Str::<i32>::init_iter(0, [1, 2, 3, 4].into_iter(), [0].into_iter()).in_box();
     {
         let mut v = s.as_mut().view_mut();
         // SliceBorrow<i32> must coerce to &[i32] and &mut [i32]
@@ -566,4 +566,71 @@ fn test_sliceborrow_coercions() {
         takes_mut_slice(&mut v.b);
     }
     assert_eq!(s.view().b, &[2, 4, 6, 8]);
+}
+
+// ── Tests for Arc, Rc, Mutex, RefCell Wrappers ───────────────────────────
+
+#[slice_struct]
+struct WrapTest {
+    pub counter: u32,
+    #[slice] pub data: u8,
+}
+
+#[test]
+fn test_in_arc() {
+    let arc = WrapTest::init_def(10, (5, 4)).in_arc();
+    assert_eq!(*arc.view().counter, 10);
+    assert_eq!(arc.view().data, &[5, 5, 5, 5]);
+    let clone1 = arc.clone();
+    
+    assert_eq!(clone1.view().data.len(), 4);
+    
+    let raw_arc = unsafe { std::pin::Pin::into_inner_unchecked(arc) };
+    assert_eq!(std::sync::Arc::strong_count(&raw_arc), 2);
+}
+
+#[test]
+fn test_in_rc() {
+    let rc = WrapTest::init_def(99, (1, 2)).in_rc();
+    let clone1 = rc.clone();
+    
+    assert_eq!(clone1.view().data, &[1, 1]);
+    
+    let raw_rc = unsafe { std::pin::Pin::into_inner_unchecked(rc) };
+    assert_eq!(std::rc::Rc::strong_count(&raw_rc), 2);
+}
+
+#[test]
+fn test_arc_mutex_concurrency() {
+    use std::thread;
+    let s = WrapTest::init_def(0, (0, 100)).with_mutex().in_arc();
+    let mut handles = vec![];
+    for _ in 0..10 {
+        let s_clone = s.clone();
+        handles.push(thread::spawn(move || {
+            let mut guard = s_clone.lock();
+            let mut view = guard.as_mut().view_mut();
+            *view.counter += 1;
+            for i in 0..100 { view.data[i] += 1; }
+        }));
+    }
+    for h in handles { h.join().unwrap(); }
+    let guard = s.lock();
+    let view = guard.view();
+    assert_eq!(*view.counter, 10);
+    for i in 0..100 { assert_eq!(view.data[i], 10); }
+}
+
+#[test]
+fn test_rc_refcell() {
+    let rc = WrapTest::init_def(0, (0, 10)).with_refcell().in_rc();
+    {
+        let mut guard = rc.borrow_mut();
+        let mut view = guard.as_mut().view_mut();
+        *view.counter = 42;
+        view.data[0] = 99;
+    }
+    let view = rc.borrow();
+    assert_eq!(*view.view().counter, 42);
+    assert_eq!(view.view().data[0], 99);
 }
