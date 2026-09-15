@@ -20,16 +20,21 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         actual_fields.extend(quote! { #internal_ident: #ty, });
     }
 
-    for (i, (_, ty, _)) in input.slice_fields.iter().enumerate() {
+    for (i, (ident, ty, _)) in input.slice_fields.iter().enumerate() {
         let align_ident = format_ident!("__align_{}", i);
-        prefix_fields.extend(quote! { #align_ident: [#ty; 0], });
-        actual_fields.extend(quote! { #align_ident: [#ty; 0], });
-    }
-
-    for (ident, ty, _) in &input.slice_fields {
         let internal_ident = format_ident!("__{}", ident);
-        prefix_fields.extend(quote! { #internal_ident: ::slice_struct::SliceHandle<#ty>, });
-        actual_fields.extend(quote! { #internal_ident: ::slice_struct::SliceHandle<#ty>, });
+        let state_ident = format_ident!("__{}_state", ident);
+
+        prefix_fields.extend(quote! {
+            #state_ident: <#ty as ::slice_struct::InlineSlice>::State,
+            #align_ident: [<#ty as ::slice_struct::InlineSlice>::Element; 0],
+            #internal_ident: ::slice_struct::SliceHandle<<#ty as ::slice_struct::InlineSlice>::Element>,
+        });
+        actual_fields.extend(quote! {
+            #state_ident: <#ty as ::slice_struct::InlineSlice>::State,
+            #align_ident: [<#ty as ::slice_struct::InlineSlice>::Element; 0],
+            #internal_ident: ::slice_struct::SliceHandle<<#ty as ::slice_struct::InlineSlice>::Element>,
+        });
     }
     
     prefix_fields.extend(quote! {

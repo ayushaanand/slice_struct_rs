@@ -13,3 +13,6 @@ categories = ["memory-management", "rust-patterns"]
 
 [dependencies]
 slice_struct_macro = { version = "0.3.0", path = "slice_struct_macro" }
+
+[dev-dependencies]
+cargo-rdme = "2.2.2"

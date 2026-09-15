@@ -49,6 +49,12 @@ impl<T> SliceHandle<T> {
     pub fn as_mut_slice(self: Pin<&mut Self>) -> &mut [T] {
         unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
     }
+
+    /// Retrieve the raw pointer to the slice without constructing a reference.
+    #[inline]
+    pub fn as_non_null(&self) -> NonNull<[T]> {
+        NonNull::slice_from_raw_parts(self.ptr, self.len)
+    }
 }
 
 impl<T> core::ops::Deref for SliceHandle<T> {

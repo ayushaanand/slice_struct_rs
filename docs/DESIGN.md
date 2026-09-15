@@ -1,12 +1,14 @@
 # Internal Design & Memory Layout
 
-This document details the low-level architecture, memory layout, and soundness guarantees of `slice_struct`. It serves as a reference for contributors and those curious about advanced Rust unsafe memory patterns.
+This document details the low-level architecture, memory layout, and soundness guarantees of `slice_struct`. It serves as a reference for contributors and those curious about advanced Rust unsafe memory patterns. The magic behind `slice_struct` boils down to bypassing strict Rust compiler limitations using a sequence of highly advanced unsafe memory tricks.
 
-## 1. The Core Architecture
+## 1. The Core Trick: The "Fake" DST Tail
 
-The goal of `slice_struct` is to pack multiple dynamically sized arrays (`[T]`) into a single heap allocation alongside fixed-size struct fields. 
+Rust fundamentally enforces that a struct can only have **one** dynamically sized field (DST), and it **must** be at the very end. If a user asks for `payload: [u8]` and `tags: [u16]`, the compiler natively rejects it. 
 
-Rust natively supports Dynamically Sized Types (DSTs), but **strictly limits them to a single dynamic array at the very end of a struct**. To bypass this limitation, `slice_struct` creates a custom DST where the single native dynamic array is just a raw byte buffer (`[MaybeUninit<u8>]`), and we manually partition that buffer into multiple typed slices.
+We bypass this by lying to the compiler. We generate a struct where the tail is just a massive, opaque byte buffer: `__data_tail: [core::mem::MaybeUninit<u8>]`. To the compiler, this perfectly satisfies the "one DST at the end" rule. 
+
+Behind the scenes, we take that single byte buffer and manually partition it at runtime into multiple typed slices using `std::alloc::Layout` offset math.
 
 ### The Generated Struct
 
@@ -15,8 +17,8 @@ When a user defines:
 #[slice_struct]
 struct Packet {
     id: u32,
-    #[slice] payload: u8,
-    #[slice] tags: u16,
+    #[slice] payload: [u8],
+    #[slice] tags: [u16],
 }
 ```
 
@@ -27,9 +29,11 @@ struct Packet {
     // 1. User's sized fields
     __id: u32,
     
-    // 2. Alignment enforcers (0-byte arrays)
-    __align_0: [u8; 0],
-    __align_1: [u16; 0],
+    // 2. State & Alignment enforcers
+    __payload_state: <[u8] as InlineSlice>::State,
+    __align_0: [<[u8] as InlineSlice>::Element; 0],
+    __tags_state: <[u16] as InlineSlice>::State,
+    __align_1: [<[u16] as InlineSlice>::Element; 0],
     
     // 3. Slice Handles (pointer + length)
     __payload: SliceHandle<u8>,
@@ -56,11 +60,7 @@ struct Packet {
             __tags.ptr ------------------------/
 ```
 
-## 2. Dynamic Layout Calculation
-
-Because the lengths of the slices are not known until runtime, the compiler cannot automatically calculate the size or padding of the struct. We must compute this manually at allocation time.
-
-We use `std::alloc::Layout` to compute the exact memory footprint safely:
+Because the lengths of the slices are not known until runtime, we compute the footprint safely:
 ```rust
 let layout = Layout::new::<SizedPrefix>();
 let (layout, payload_offset) = layout.extend(Layout::array::<u8>(payload_len)).unwrap();
@@ -71,98 +71,75 @@ This guarantees that each slice is placed at an offset that perfectly satisfies 
 
 ---
 
-## 3. Edge Cases, Soundness, and Bug Post-Mortems
+## 2. The Alignment Trick (Heap Corruption Mismatch)
 
-Writing safe wrappers around custom heap allocations involves navigating extreme edge cases. Below are specific soundness holes that were discovered and patched during the development of this crate.
+Because we replace the user's slices with a raw `u8` byte buffer, Rust forgets the alignment requirements of the original slices. If a user asked for a `[u64]` (8-byte aligned), but our tail is just `u8` (1-byte aligned), `Box` will eventually deallocate the heap memory with a 1-byte alignment layout. 
 
-### Case 1: The "Heap Corruption" Alignment Mismatch
+Deallocating memory with a layout different from the one used to allocate it causes instant **OS heap corruption**.
 
-**The Bug:** 
-When a user placed a highly aligned type inside a slice (e.g., `#[repr(align(64))] struct Aligned(u8)`), the test suite crashed instantly with `STATUS_HEAP_CORRUPTION`.
-
-**The Cause:**
-When we allocate the memory, our custom `Layout` math correctly calculates that the pointer needs 64-byte alignment. We request this from the OS and receive a 64-byte aligned pointer.
-However, when the `Box<Packet>` is eventually dropped, Rust's `Box` automatically calculates the layout for deallocation based purely on the `Packet` struct definition. Because we stripped the slice fields and replaced them with `SliceHandle` (which only requires 8-byte pointer alignment), Rust instructed the allocator to deallocate the memory with an 8-byte alignment layout.
-Deallocating memory with a layout different from the one used to allocate it causes instant heap corruption.
-
-**The Fix:**
-We must force the compiler to statically recognize the maximum alignment of all possible slice elements. We do this by injecting zero-length arrays of the slice types directly into the sized portion of the struct:
+To fix this, we generate **zero-length arrays** of the user's types in the sized prefix:
 ```rust
-__align_0: [Aligned; 0],
+__align_0: [<[u64] as InlineSlice>::Element; 0],
 ```
-This occupies 0 bytes of space, but successfully propagates the 64-byte alignment requirement to the struct's intrinsic layout. When `Box` drops, it now perfectly matches the custom allocation layout.
-
-### Case 2: The "Lying Iterator" Buffer Overflow
-
-**The Bug:**
-When constructing a struct using `new_box_iter`, the macro takes an `ExactSizeIterator` for each slice. Initially, the code read `iter.len()` to calculate the layout size, but then used a standard `.enumerate()` loop to write elements until the iterator returned `None`.
-
-**The Cause:**
-`ExactSizeIterator` is a *safe* trait. Any user can implement it and intentionally return `100` for `.len()`, but yield `0` items, or yield `10_000` items.
-* If it yielded fewer items: The loop stopped early, leaving uninitialized memory in the slice. Dropping that memory later caused Undefined Behavior.
-* If it yielded more items: The loop kept writing past the end of the heap allocation, causing a buffer overflow and heap corruption.
-
-**The Fix:**
-We completely decoupled the loop boundary from the iterator's internal state. The loop runs exactly `0..iter.len()` times. 
-* If the iterator yields fewer items, it hits an `.expect()` and panics immediately, aborting before any UB can occur. 
-* If the iterator yields more items, the loop finishes gracefully, and the extra elements are simply ignored/dropped safely.
-
-### Case 3: Panic Unwinding Memory Leaks
-
-**The Bug:**
-If the aforementioned panic occurs during a write loop (or if the iterator itself panics mid-write), the stack begins unwinding. The raw `ptr` allocation was leaked, and worse, any items that *had* been written before the panic were abandoned without having their `Drop` implementations called.
-
-**The Fix:**
-We introduced `__DropGuard<T>`, a RAII guard similar to `Vec`'s internal `SetLenOnDrop`. 
-Before entering the write loop, we initialize the guard with the raw pointer and a tracking counter. As each element is written, the counter increments. 
-If a panic occurs, the guard's `Drop` implementation runs and safely executes `ptr::drop_in_place` on exactly the slice of elements that were successfully initialized. If the loop completes successfully, `core::mem::forget(guard)` is called, transferring ownership to the final `Box`.
+This takes up 0 bytes, but forces the Rust compiler to intrinsically elevate the alignment of the entire struct to match the strictest slice. When `Box` drops, it now perfectly matches the custom allocation layout.
 
 ---
 
-## 4. Disjoint Borrowing (The View API)
+## 3. The `InlineSlice` Split (Trait-Based Parsing)
 
-One of the most complex challenges of `slice_struct` is making the resulting struct ergonomic to use, specifically when it comes to mutating the data. 
+In early versions, the macro had to manually parse and calculate layouts for different types of slices. In `0.3.0`, we shifted that complexity to the trait system. 
 
-### The Problem with `Pin<&mut Self>`
+If a user writes `#[slice] flags: Mutex<[u32]>`, the compiler automatically queries the `InlineSlice` trait. 
+It sees that `State = Mutex<()>` and `Element = u32`. 
+The macro simply injects `__flags_state: Mutex<()>` into the sized prefix, and calculates the layout of the raw memory tail based purely on `u32`. The heavy lifting is completely offloaded to standard Rust type resolution!
 
-Because the struct is a custom DST with a raw byte tail, it is strictly `!Unpin` (enforced via a hidden `PhantomPinned` field). This means users can never safely obtain a `&mut Packet` reference; they must interact with it via `Pin<&mut Packet>`.
+---
 
-If we simply generated getter and setter methods on the struct, like this:
-```rust
-impl Packet {
-    pub fn payload(self: Pin<&mut Self>) -> &mut [u8] { ... }
-    pub fn tags(self: Pin<&mut Self>) -> &mut [u16] { ... }
-}
-```
-We run into a massive usability wall: **Rust's borrow checker considers a method call on `self` to borrow the *entire* struct**. 
-If a user calls `p.payload()`, the entire `Pin<&mut Packet>` is locked. They would be completely forbidden from calling `p.tags()` or accessing `p.id` at the same time. This makes standard data manipulation (like reading a tag to decide how to modify the payload) impossible.
+## 4. Safe Disjoint Borrowing (The View API)
 
-### The `ViewMut` Solution (Destructuring the Borrow)
+Because our struct uses raw pointer offsets and a custom tail, it is inherently `!Unpin` (it cannot be safely moved). Users can only interact with it behind `Pin<&mut Self>`. 
 
-To solve this, `slice_struct` completely hides the actual fields behind `__` prefixes and forces all interaction through a "View API".
+However, Rust considers a method call taking `&mut self` to lock the *entire* struct, making it impossible to mutate `payload` and `tags` at the same time! We solve this by generating a transparent ephemeral struct (e.g. `PacketViewMut`). 
 
-When the user calls `.as_mut().view_mut()`, the macro generated method does something very specific:
-1. It takes the `Pin<&'a mut Self>`.
-2. It uses `unsafe { self.get_unchecked_mut() }` to bypass the `Pin` restriction internally.
-3. It creates a temporary, short-lived struct called `PacketViewMut<'a>`.
-4. It populates `PacketViewMut` with distinct, independent references to every single field inside the struct.
+When you call `.view_mut()`, we unsafely unpack the `Pin`, pull out the raw pointers for each slice, construct native references via the `<Type as InlineSlice>::ViewMut<'a>` projection, and hand them to you inside the `PacketViewMut` struct:
 
 ```rust
 // Macro-generated View struct (inherits the struct's visibility)
 pub struct PacketViewMut<'a> {
     pub id: &'a mut u32,
-    pub payload: SliceBorrow<'a, u8>,
-    pub tags: SliceBorrow<'a, u16>,
+    pub payload: &'a mut [u8],  // Projected from <[u8] as InlineSlice>
+    pub tags: &'a mut [u16],    // Projected from <[u16] as InlineSlice>
 }
 ```
 
-Because `PacketViewMut` is a transparent struct where every field inherits the exact visibility (`pub`, `pub(crate)`, etc.) you gave it in the original definition, **the Rust compiler's borrow checker can see inside it.** 
-When the user accesses `v.payload` and `v.tags`, the compiler understands they are distinct memory addresses. This perfectly re-enables simultaneous, disjoint borrowing across the entire struct, completely bypassing the opacity of the original `Pin<&mut Self>` method call.
+Because the Rust compiler natively understands that fields inside a struct don't overlap, it mathematically re-enables simultaneous, disjoint borrowing across all your slices!
 
-### The Role of `SliceBorrow`
+---
 
-While standard fields get mapped to standard `&'a mut T` references in the View, the slice fields are mapped to a custom `SliceBorrow<'a, T>` guard. 
+## 5. `NonNull` Retagging (The Miri Fix)
 
-Internally, the original struct holds a `SliceHandle<T>` (which is just a `NonNull<T>` pointer and a `usize` length). `SliceBorrow` wraps this handle and implements `DerefMut<Target = [T]>`. When the user accesses `v.payload[0] = 99`, the `SliceBorrow` dereferences the raw pointer and reconstructs the `&mut [u8]` slice dynamically. 
+Miri tracks "Stacked Borrows" to rigorously prevent aliasing. If we accidentally derive a `&mut [T]` from a `&[T]`, Miri flags it as Undefined Behavior (UB), even if we hold a Mutex lock for safe interior mutability! 
 
-Because `SliceBorrow` is tied to the `'a` lifetime of the `ViewMut` struct (which in turn is tied to the mutable borrow of the `Box`), memory safety and exclusivity are perfectly maintained.
+We avoided this by storing `NonNull<T>` pointers inside hidden `SliceHandle` fields. When `<Mutex<[T]> as InlineSlice>::project_mut` is called to yield a `SliceMutexGuard`, we pass the raw pointer directly out of the handle without ever constructing an intermediate `&[T]`. This preserves the raw pointer's unique provenance, allowing perfectly safe interior mutability over slices directly inside the struct.
+
+---
+
+## 6. The "Lying Iterator" Buffer Overflow
+
+When constructing a struct using `init_iter`, we take an `ExactSizeIterator` for each slice. Initially, the code read `iter.len()` to calculate the layout size, but then used a standard `.enumerate()` loop to write elements until the iterator returned `None`.
+
+`ExactSizeIterator` is a *safe* trait. Any user can implement it and intentionally return `100` for `.len()`, but actually yield `10_000` items. If the loop kept writing past the end of the heap allocation, it would cause a buffer overflow.
+
+**The Fix:** We completely decoupled the loop boundary from the iterator's internal state. The loop runs exactly `0..iter.len()` times. 
+* If the iterator yields fewer items, it hits an `.expect()` and panics immediately, aborting before any UB can occur. 
+* If the iterator yields more items, the loop finishes gracefully, and the extra elements are simply ignored.
+
+---
+
+## 7. Panic Unwinding Memory Leaks
+
+If a panic occurs during a write loop (or if an iterator itself panics mid-write), the stack begins unwinding. In early builds, the raw `ptr` allocation was leaked, and worse, any items that *had* been written before the panic were abandoned without having their `Drop` implementations called.
+
+**The Fix:** We introduced `__DropGuard<T>`, a RAII guard similar to `Vec`'s internal `SetLenOnDrop`. 
+Before entering the write loop, we initialize the guard with the raw pointer and a tracking counter. As each element is written, the counter increments. 
+If a panic occurs, the guard's `Drop` implementation runs and safely executes `ptr::drop_in_place` on exactly the slice of elements that were successfully initialized. If the loop completes successfully, `core::mem::forget(guard)` is called, transferring ownership to the final `Box`.

@@ -25,7 +25,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let offset_ident = format_ident!("{}_offset", ident);
         layout_stmts.extend(quote! {
             let (layout, #offset_ident) =
-                layout.extend(::std::alloc::Layout::array::<#ty>(#len_ident).unwrap()).unwrap();
+                layout.extend(::std::alloc::Layout::array::<<#ty as ::slice_struct::InlineSlice>::Element>(#len_ident).unwrap()).unwrap();
         });
     }
     layout_stmts.extend(quote! {

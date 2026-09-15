@@ -9,8 +9,11 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
 
     let mut view_generics = input.generics.clone();
     view_generics.params.insert(0, ::syn::parse_quote!('__a));
-    let (_view_impl_generics, view_ty_generics, _) = view_generics.split_for_impl();
-
+    for (_, ty, _) in &input.slice_fields {
+        view_generics.make_where_clause().predicates.push(::syn::parse_quote!(#ty: '__a));
+    }
+    let (_view_impl_generics, view_ty_generics, view_where_clause) = view_generics.split_for_impl();
+    
     let view_ident = format_ident!("{}View", struct_name);
     let view_mut_ident = format_ident!("{}ViewMut", struct_name);
 
@@ -35,26 +38,33 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
 
     for (ident, ty, fvis) in &input.slice_fields {
         let internal_ident = format_ident!("__{}", ident);
+        let state_ident = format_ident!("__{}_state", ident);
         
-        view_fields.extend(quote! { #fvis #ident: &'__a [#ty], });
-        view_init.extend(quote! { #ident: &this.#internal_ident, });
+        view_fields.extend(quote! { #fvis #ident: <#ty as ::slice_struct::InlineSlice>::View<'__a>, });
+        view_init.extend(quote! { 
+            #ident: <#ty as ::slice_struct::InlineSlice>::project(
+                &this.#state_ident,
+                this.#internal_ident.as_non_null()
+            ),
+        });
         
-        view_mut_fields.extend(quote! { #fvis #ident: ::slice_struct::SliceBorrow<'__a, #ty>, });
+        view_mut_fields.extend(quote! { #fvis #ident: <#ty as ::slice_struct::InlineSlice>::ViewMut<'__a>, });
         view_mut_init.extend(quote! {
-            #ident: ::slice_struct::SliceBorrow::__from_handle(
-                ::core::pin::Pin::new_unchecked(&mut this.#internal_ident)
+            #ident: <#ty as ::slice_struct::InlineSlice>::project_mut(
+                &this.#state_ident,
+                this.#internal_ident.as_non_null()
             ),
         });
     }
 
     quote! {
         #[doc = "An immutable view into the fields of the struct, providing `&T` for normal fields and `&[T]` for slice fields."]
-        #vis struct #view_ident #view_generics {
+        #vis struct #view_ident #view_generics #view_where_clause {
             #view_fields
         }
 
         #[doc = "A mutable view into the fields of the struct, providing `&mut T` for normal fields and `SliceBorrow` (which acts as `&mut [T]`) for slice fields.\n\nThis struct enables safe disjoint borrowing of multiple slices simultaneously."]
-        #vis struct #view_mut_ident #view_generics {
+        #vis struct #view_mut_ident #view_generics #view_where_clause {
             #view_mut_fields
         }
 

@@ -39,7 +39,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
             ::core::ptr::write(
                 ::core::ptr::addr_of_mut!((*ptr).#internal_ident),
                 ::slice_struct::SliceHandle::__new_unchecked(
-                    (ptr as *mut u8).add(#offset).cast::<#ty>(),
+                    (ptr as *mut u8).add(#offset).cast::<<#ty as ::slice_struct::InlineSlice>::Element>(),
                     (*ptr).#internal_ident.len()
                 )
             );
@@ -84,7 +84,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         iter_generics.params.push(::syn::parse_quote!(#generic_ident));
         iter_type_params.push(generic_ident.clone());
         iter_fields.extend(quote! { pub #ident: #generic_ident, });
-        iter_bounds.extend(quote! { #generic_ident: ::core::iter::ExactSizeIterator<Item = #ty>, });
+        iter_bounds.extend(quote! { #generic_ident: ::core::iter::ExactSizeIterator<Item = <#ty as ::slice_struct::InlineSlice>::Element>, });
         
         iter_fn_args.extend(quote! { mut #ident: #generic_ident, });
         iter_fn_init.extend(quote! { #ident, });
@@ -95,7 +95,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         
         let offset = &offset_vars[i];
         iter_write_slices.extend(quote! {
-            let field_ptr = ptr.add(#offset).cast::<#ty>();
+            let field_ptr = ptr.add(#offset).cast::<<#ty as ::slice_struct::InlineSlice>::Element>();
             let mut guard = ::slice_struct::__DropGuard::new(field_ptr);
             let mut iter = self.#ident.into_iter();
             for j in 0..#len_ident {
@@ -110,10 +110,12 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     let (iter_impl_generics, iter_ty_generics, _) = iter_generics.split_for_impl();
     
     let mut prefix_init_iter = prefix_init.clone();
-    for (ident, _, _) in &input.slice_fields {
+    for (ident, ty, _) in &input.slice_fields {
         let internal_ident = format_ident!("__{}", ident);
+        let state_ident = format_ident!("__{}_state", ident);
         let len_ident = format_ident!("{}_len", ident);
         prefix_init_iter.extend(quote! {
+            #state_ident: <#ty as ::slice_struct::InlineSlice>::init_state(),
             #internal_ident: ::slice_struct::SliceHandle::__new_unchecked(::core::ptr::NonNull::dangling().as_ptr(), #len_ident),
         });
     }
@@ -172,10 +174,10 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     }
     
     for (i, (ident, ty, _)) in input.slice_fields.iter().enumerate() {
-        def_bounds.extend(quote! { #ty: ::core::clone::Clone, });
-        def_fields.extend(quote! { pub #ident: (#ty, usize), });
+        def_bounds.extend(quote! { <#ty as ::slice_struct::InlineSlice>::Element: ::core::clone::Clone, });
+        def_fields.extend(quote! { pub #ident: (<#ty as ::slice_struct::InlineSlice>::Element, usize), });
         
-        def_fn_args.extend(quote! { #ident: (#ty, usize), });
+        def_fn_args.extend(quote! { #ident: (<#ty as ::slice_struct::InlineSlice>::Element, usize), });
         def_fn_init.extend(quote! { #ident, });
         
         let len_ident = format_ident!("{}_len", ident);
@@ -185,7 +187,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let offset = &offset_vars[i];
         def_write_slices.extend(quote! {
             let def_len = self.#ident.1;
-            let field_ptr = ptr.add(#offset).cast::<#ty>();
+            let field_ptr = ptr.add(#offset).cast::<<#ty as ::slice_struct::InlineSlice>::Element>();
             if def_len > 0 {
                 let def_val = self.#ident.0;
                 for j in 0..def_len - 1 {
@@ -197,10 +199,12 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     }
     
     let mut prefix_init_def = prefix_init.clone();
-    for (ident, _, _) in &input.slice_fields {
+    for (ident, ty, _) in &input.slice_fields {
         let internal_ident = format_ident!("__{}", ident);
+        let state_ident = format_ident!("__{}_state", ident);
         let len_ident = format_ident!("{}_len", ident);
         prefix_init_def.extend(quote! {
+            #state_ident: <#ty as ::slice_struct::InlineSlice>::init_state(),
             #internal_ident: ::slice_struct::SliceHandle::__new_unchecked(::core::ptr::NonNull::dangling().as_ptr(), #len_ident),
         });
     }
@@ -211,7 +215,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     // syn generics split_for_impl already gives us `where_clause`. We can inject our bounds into a copy.
     let mut def_generics = input.generics.clone();
     for (_, ty, _) in &input.slice_fields {
-        def_generics.make_where_clause().predicates.push(::syn::parse_quote!(#ty: ::core::clone::Clone));
+        def_generics.make_where_clause().predicates.push(::syn::parse_quote!(<#ty as ::slice_struct::InlineSlice>::Element: ::core::clone::Clone));
     }
     let (_, _, def_where_clause_with_clone) = def_generics.split_for_impl();
 

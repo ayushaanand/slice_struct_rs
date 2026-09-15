@@ -16,7 +16,7 @@ use core::ptr::NonNull;
 /// ```rust
 /// # use slice_struct::slice_struct;
 /// # #[slice_struct]
-/// # pub struct Packet { pub id: u32, #[slice] pub payload: u8 }
+/// # pub struct Packet { pub id: u32, #[slice] pub payload: [u8] }
 /// let arc_mutex = Packet::init_def(1, (0, 10))
 ///     .with_mutex()
 ///     .in_arc();
@@ -105,7 +105,7 @@ unsafe impl<T: ?Sized, I: SliceInit<T>> SliceInit<DstMutex<T>> for WithMutex<I> 
 /// ```rust
 /// # use slice_struct::slice_struct;
 /// # #[slice_struct]
-/// # pub struct Packet { pub id: u32, #[slice] pub payload: u8 }
+/// # pub struct Packet { pub id: u32, #[slice] pub payload: [u8] }
 /// let rc_refcell = Packet::init_def(1, (0, 10))
 ///     .with_refcell()
 ///     .in_rc();

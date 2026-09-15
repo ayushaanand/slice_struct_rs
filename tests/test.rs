@@ -4,10 +4,8 @@ use slice_struct::slice_struct;
 #[slice_struct]
 struct Str<T: Clone> {
     a: u32,
-    #[slice]
-    b: T,
-    #[slice]
-    c: u32,
+    #[slice] b: [T],
+    #[slice] c: [u32],
 }
 
 // ── init_iter ─────────────────────────────────────────────────────────
@@ -20,7 +18,7 @@ fn test_iter_basic() {
     assert_eq!(s.view().b, &[1i32, 2, 3]);
     assert_eq!(s.view().c, &[4u32, 5, 6, 7]);
 
-    let mut v = s.as_mut().view_mut();
+    let v = s.as_mut().view_mut();
     v.b[0] = 10;
     v.c[1] = 99;
 
@@ -31,7 +29,7 @@ fn test_iter_basic() {
 #[test]
 fn test_mixed_borrow() {
     let mut s = Str::<i32>::init_iter(0, [10_i32, 20, 30].into_iter(), [1_u32, 2, 3].into_iter()).in_box();
-    let mut v = s.as_mut().view_mut();
+    let v = s.as_mut().view_mut();
 
     let b_ref: &[i32] = &v.b;
     v.c[0] = b_ref[2] as u32 * 10;
@@ -77,8 +75,7 @@ fn test_def_zero_len() {
 #[slice_struct]
 struct SStr {
     a: String,
-    #[slice]
-    b: String,
+    #[slice] b: [String],
 }
 
 #[test]
@@ -121,7 +118,7 @@ fn test_no_slices_def() {
 
 #[slice_struct]
 struct OneSlice {
-    #[slice] pub data: u8,
+    #[slice] pub data: [u8],
 }
 
 #[test]
@@ -129,7 +126,7 @@ fn test_only_one_slice_iter() {
     let mut s = OneSlice::init_iter([10, 20].into_iter()).in_box();
     assert_eq!(s.view().data, &[10, 20]);
     
-    let mut v = s.as_mut().view_mut();
+    let v = s.as_mut().view_mut();
     v.data[1] = 99;
     assert_eq!(s.view().data, &[10, 99]);
 }
@@ -144,9 +141,9 @@ fn test_only_one_slice_def() {
 
 #[slice_struct]
 struct MixedEmpty {
-    #[slice] a: u8,
-    #[slice] b: u16,
-    #[slice] c: u32,
+    #[slice] a: [u8],
+    #[slice] b: [u16],
+    #[slice] c: [u32],
 }
 
 #[test]
@@ -168,7 +165,7 @@ fn test_mixed_empty_and_full() {
 
 #[slice_struct]
 struct ZstStruct {
-    #[slice] zst: (),
+    #[slice] zst: [()],
 }
 
 #[test]
@@ -184,7 +181,7 @@ struct Aligned64(u8);
 #[slice_struct]
 struct HighlyAligned {
     a: u8,
-    #[slice] data: Aligned64,
+    #[slice] data: [Aligned64],
 }
 
 #[test]
@@ -225,8 +222,7 @@ impl Drop for DropCounter {
 
 #[slice_struct]
 struct DropTest {
-    #[slice]
-    items: DropCounter,
+    #[slice] items: [DropCounter],
 }
 
 #[test]
@@ -266,8 +262,7 @@ impl ExactSizeIterator for BadIter {
 
 #[slice_struct]
 struct IterTest {
-    #[slice]
-    data: u32,
+    #[slice] data: [u32],
 }
 
 #[test]
@@ -291,8 +286,7 @@ fn test_lying_iterator_short() {
 #[slice_struct]
 struct WithLifetimes<'a, T: Clone> {
     prefix: &'a str,
-    #[slice]
-    data: T,
+    #[slice] data: [T],
 }
 
 #[test]
@@ -308,10 +302,10 @@ fn test_lifetimes_and_generics() {
 #[slice_struct]
 struct KitchenSink {
     a: u8,
-    #[slice] b: u64,
-    #[slice] c: u8,
-    #[slice] d: (),
-    #[slice] e: u32,
+    #[slice] b: [u64],
+    #[slice] c: [u8],
+    #[slice] d: [()],
+    #[slice] e: [u32],
 }
 
 #[test]
@@ -355,7 +349,7 @@ fn test_multiple_simultaneous_views() {
 fn test_view_mut_then_view() {
     let mut s = Str::<i32>::init_iter(0, [1, 2, 3].into_iter(), [10].into_iter()).in_box();
     {
-        let mut v = s.as_mut().view_mut();
+        let v = s.as_mut().view_mut();
         v.b[0] = 99;
     } // mutable borrow ends here
     assert_eq!(s.view().b[0], 99); // immutable borrow is now legal
@@ -366,7 +360,7 @@ fn test_view_mut_then_view() {
 #[test]
 fn test_slice_independence() {
     let mut s = Str::<i32>::init_iter(0, [1, 2, 3].into_iter(), [10, 20, 30].into_iter()).in_box();
-    let mut v = s.as_mut().view_mut();
+    let v = s.as_mut().view_mut();
 
     // Read c, write b — these are physically separate memory regions.
     let sum_c: u32 = v.c.iter().sum();
@@ -382,7 +376,7 @@ fn test_slice_independence() {
 #[slice_struct]
 struct BigBuf {
     tag: u64,
-    #[slice] data: u8,
+    #[slice] data: [u8],
 }
 
 #[test]
@@ -403,7 +397,7 @@ use std::sync::Arc;
 
 #[slice_struct]
 struct ArcSlice {
-    #[slice] items: Arc<u32>,
+    #[slice] items: [Arc<u32>],
 }
 
 #[test]
@@ -445,7 +439,7 @@ impl ExactSizeIterator for PanicsAt {
 
 #[slice_struct]
 struct StringSlice {
-    #[slice] words: String,
+    #[slice] words: [String],
 }
 
 #[test]
@@ -459,7 +453,7 @@ fn test_panic_mid_iter_no_leak() {
     impl Drop for Tracked { fn drop(&mut self) { DROP_COUNT.fetch_add(1, Ordering::SeqCst); } }
 
     #[slice_struct]
-    struct TrackedSlice { #[slice] items: Tracked }
+    struct TrackedSlice { #[slice] items: [Tracked] }
 
     struct TrackedPanicsAt { current: usize, panics_at: usize }
     impl Iterator for TrackedPanicsAt {
@@ -491,8 +485,8 @@ fn test_panic_mid_iter_no_leak() {
 #[slice_struct]
 struct TwoAligned {
     tag: u8,
-    #[slice] a: A16,
-    #[slice] b: A32,
+    #[slice] a: [A16],
+    #[slice] b: [A32],
 }
 
 #[test]
@@ -510,7 +504,7 @@ fn test_two_aligned_slices() {
 fn test_iter_mut_all_elements() {
     let mut s = Str::<i32>::init_def(0, (1, 100), (2, 100)).in_box();
     {
-        let mut v = s.as_mut().view_mut();
+        let v = s.as_mut().view_mut();
         v.b.iter_mut().enumerate().for_each(|(i, x)| *x = i as i32);
         v.c.iter_mut().enumerate().for_each(|(i, x)| *x = (i * 2) as u32);
     }
@@ -573,7 +567,7 @@ fn test_sliceborrow_coercions() {
 #[slice_struct]
 struct WrapTest {
     pub counter: u32,
-    #[slice] pub data: u8,
+    #[slice] pub data: [u8],
 }
 
 #[test]
@@ -586,7 +580,7 @@ fn test_in_arc() {
     assert_eq!(clone1.view().data.len(), 4);
     
     let raw_arc = unsafe { std::pin::Pin::into_inner_unchecked(arc) };
-    assert_eq!(std::sync::Arc::strong_count(&raw_arc), 2);
+    assert_eq!(Arc::strong_count(&raw_arc), 2);
 }
 
 #[test]
@@ -609,7 +603,7 @@ fn test_arc_mutex_concurrency() {
         let s_clone = s.clone();
         handles.push(thread::spawn(move || {
             let mut guard = s_clone.lock();
-            let mut view = guard.as_mut().view_mut();
+            let view = guard.as_mut().view_mut();
             *view.counter += 1;
             for i in 0..100 { view.data[i] += 1; }
         }));
@@ -626,7 +620,7 @@ fn test_rc_refcell() {
     let rc = WrapTest::init_def(0, (0, 10)).with_refcell().in_rc();
     {
         let mut guard = rc.borrow_mut();
-        let mut view = guard.as_mut().view_mut();
+        let view = guard.as_mut().view_mut();
         *view.counter = 42;
         view.data[0] = 99;
     }
@@ -634,3 +628,36 @@ fn test_rc_refcell() {
     assert_eq!(*view.view().counter, 42);
     assert_eq!(view.view().data[0], 99);
 }
+
+use std::sync::Mutex;
+use std::cell::RefCell;
+
+#[slice_struct]
+struct Advanced {
+    #[slice]
+    string: str,
+    #[slice]
+    locked: Mutex<[u8]>,
+    #[slice]
+    cell: RefCell<[u32]>,
+}
+
+#[test]
+fn test_advanced() {
+    let a = Advanced::init_iter(
+        "hello".bytes(),
+        [1, 2, 3].into_iter(),
+        [100, 200].into_iter(),
+    ).in_box();
+    
+    assert_eq!(a.view().string, "hello");
+    assert_eq!(*a.view().locked, [1, 2, 3]);
+    assert_eq!(*a.view().cell, [100, 200]);
+    
+    a.view().locked[0] = 99;
+    a.view().cell[1] = 999;
+    
+    assert_eq!(*a.view().locked, [99, 2, 3]);
+    assert_eq!(*a.view().cell, [100, 999]);
+}
+
