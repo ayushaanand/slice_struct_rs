@@ -148,7 +148,7 @@ When the user calls `.as_mut().view_mut()`, the macro generated method does some
 4. It populates `PacketViewMut` with distinct, independent references to every single field inside the struct.
 
 ```rust
-// Macro-generated View struct
+// Macro-generated View struct (inherits the struct's visibility)
 pub struct PacketViewMut<'a> {
     pub id: &'a mut u32,
     pub payload: SliceBorrow<'a, u8>,
@@ -156,7 +156,7 @@ pub struct PacketViewMut<'a> {
 }
 ```
 
-Because `PacketViewMut` is just a standard struct with public fields, **the Rust compiler's borrow checker can see inside it.** 
+Because `PacketViewMut` is a transparent struct where every field inherits the exact visibility (`pub`, `pub(crate)`, etc.) you gave it in the original definition, **the Rust compiler's borrow checker can see inside it.** 
 When the user accesses `v.payload` and `v.tags`, the compiler understands they are distinct memory addresses. This perfectly re-enables simultaneous, disjoint borrowing across the entire struct, completely bypassing the opacity of the original `Pin<&mut Self>` method call.
 
 ### The Role of `SliceBorrow`
