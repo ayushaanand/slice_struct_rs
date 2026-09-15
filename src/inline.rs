@@ -97,7 +97,7 @@ impl<T> InlineSlice for Mutex<[T]> {
     }
 
     #[inline]
-    fn project(state: &Self::State, data: core::ptr::NonNull<[Self::Element]>) -> Self::View {
+    fn project<'a>(state: &'a Self::State, data: core::ptr::NonNull<[Self::Element]>) -> Self::View<'a> {
         SliceMutexGuard {
             _guard: state.lock().unwrap(),
             data: data.as_ptr(),
