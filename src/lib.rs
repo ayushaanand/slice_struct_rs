@@ -14,7 +14,7 @@
 //! 
 //! ```toml
 //! [dependencies]
-//! slice_struct = "0.3.0"
+//! slice_struct = "0.3.1"
 //! ```
 //! 
 //! ### 1. Defining and Reading
