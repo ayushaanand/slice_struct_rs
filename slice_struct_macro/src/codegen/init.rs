@@ -10,6 +10,12 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     
     let init_iter_ident = format_ident!("__{}InitIter", struct_name);
     let init_def_ident = format_ident!("__{}InitDef", struct_name);
+
+    let mode = if input.unpin {
+        quote! { ::slice_struct::RelativeMode }
+    } else {
+        quote! { ::slice_struct::AbsoluteMode }
+    };
     
     // Shared prefix init logic
     let mut prefix_init = quote! {};
@@ -26,7 +32,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     let mut fixup_len_args = quote! {};
     for (ident, _, _) in &input.slice_fields {
         let internal_ident = format_ident!("__{}", ident);
-        fixup_len_args.extend(quote! { (*ptr).#internal_ident.len(), });
+        fixup_len_args.extend(quote! { (*ptr).#internal_ident.len, });
     }
     
     let offset_vars: Vec<_> = input.slice_fields.iter().map(|(id, _, _)| format_ident!("{}_offset", id)).collect();
@@ -37,11 +43,8 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let offset = &offset_vars[i];
         fixup_write_pointers.extend(quote! {
             ::core::ptr::write(
-                ::core::ptr::addr_of_mut!((*ptr).#internal_ident),
-                ::slice_struct::SliceHandle::__new_unchecked(
-                    (ptr as *mut u8).add(#offset).cast::<<#ty as ::slice_struct::InlineSlice>::Element>(),
-                    (*ptr).#internal_ident.len()
-                )
+                ::core::ptr::addr_of_mut!((*ptr).#internal_ident.ptr_data),
+                <#mode as ::slice_struct::AddressingMode>::store::<<#ty as ::slice_struct::InlineSlice>::Element>(ptr as *mut u8, #offset)
             );
         });
     }
@@ -116,10 +119,14 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let len_ident = format_ident!("{}_len", ident);
         prefix_init_iter.extend(quote! {
             #state_ident: <#ty as ::slice_struct::InlineSlice>::init_state(),
-            #internal_ident: ::slice_struct::SliceHandle::__new_unchecked(::core::ptr::NonNull::dangling().as_ptr(), #len_ident),
+            #internal_ident: ::slice_struct::SliceHandle {
+                ptr_data: <#mode as ::slice_struct::AddressingMode>::dummy::<<#ty as ::slice_struct::InlineSlice>::Element>(),
+                len: #len_ident,
+                _marker: ::core::marker::PhantomData,
+            },
         });
     }
-    prefix_init_iter.extend(quote! { __pin: ::core::marker::PhantomPinned, });
+    prefix_init_iter.extend(quote! { __pin: <#mode as ::slice_struct::AddressingMode>::MARKER_INIT, });
 
     let iter_def = quote! {
         #[doc(hidden)]
@@ -205,14 +212,15 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let len_ident = format_ident!("{}_len", ident);
         prefix_init_def.extend(quote! {
             #state_ident: <#ty as ::slice_struct::InlineSlice>::init_state(),
-            #internal_ident: ::slice_struct::SliceHandle::__new_unchecked(::core::ptr::NonNull::dangling().as_ptr(), #len_ident),
+            #internal_ident: ::slice_struct::SliceHandle {
+                ptr_data: <#mode as ::slice_struct::AddressingMode>::dummy::<<#ty as ::slice_struct::InlineSlice>::Element>(),
+                len: #len_ident,
+                _marker: ::core::marker::PhantomData,
+            },
         });
     }
-    prefix_init_def.extend(quote! { __pin: ::core::marker::PhantomPinned, });
+    prefix_init_def.extend(quote! { __pin: <#mode as ::slice_struct::AddressingMode>::MARKER_INIT, });
     
-    // We must handle the original struct's where clause combined with the Clone bounds
-    // The easiest way is to let the macro merge it natively if possible, or just append it.
-    // syn generics split_for_impl already gives us `where_clause`. We can inject our bounds into a copy.
     let mut def_generics = input.generics.clone();
     for (_, ty, _) in &input.slice_fields {
         def_generics.make_where_clause().predicates.push(::syn::parse_quote!(<#ty as ::slice_struct::InlineSlice>::Element: ::core::clone::Clone));

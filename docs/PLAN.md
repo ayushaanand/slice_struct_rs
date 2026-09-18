@@ -4,6 +4,11 @@ This document details the major architectural features planned for future releas
 
 ---
 
+## ~~Feature 1: Universal Inline Slice Projection~~ (Completed)
+
+## ~~Feature 2: The `SliceBuilder` (In-Place Initialization)~~ (Completed)
+
+---
 ## Feature 3: Inline Dynamic Traits (`#[dyn]`)
 
 ### The Problem
@@ -57,3 +62,28 @@ let fat_ptr = tail_ptr as *mut H as *mut dyn std::fmt::Debug;
 When the user calls `.view().handler`, the struct simply dereferences the fat pointer saved in the prefix, granting immediate zero-cost access to the dynamically dispatched trait object.
 
 **Integration:** This integrates perfectly with the existing `SliceBuilder` API. The `SliceBuilder` doesn't care whether it's initializing slices or dynamic traits—it only cares about the final layout sizes. This allows `#[dyn]` fields to automatically benefit from `Arc`, `Box`, and `DstMutex` wrapping without any additional macro code!
+
+---
+
+## ~~Feature 4: Position-Independent Layouts & Zero-Copy (`#[slice_struct(unpin)]`)~~ (Completed)
+Currently, `SliceHandle` stores an absolute memory pointer (`NonNull<T>`), tying the struct permanently to its allocation address and forcing `!Unpin`. By adding a mode that stores a **relative byte offset** instead, the struct becomes position-independent and safely `Unpin`. 
+This allows raw network byte buffers (`&[u8]`) to be safely cast into `Packet` references (zero-copy deserialization like `zerocopy`), eliminating allocation entirely. It also seamlessly implements traits like `bytemuck::Pod` to standardize `unsafe` pointer generation using community-proven crates.
+
+## Feature 5: Dynamic Size Tables (VTable Arenas)
+For ECS or Data-Oriented Design pools where millions of packets share identical slice lengths (e.g., all payloads are exactly 1,024 bytes), storing the `length` and `offset` metadata inside *every* packet wastes massive amounts of RAM.
+We will introduce an Arena/VTable design (`#[slice_struct(shared_layout)]`) where the metadata is extracted into a shared static table. The struct prefix drops to **0 bytes** of metadata, transforming into a pure sequence of elements. This unlocks the Holy Grail of Rust memory design: **Nested DST Slices** (e.g., `#[slice] packets: [InnerPacket]`), allowing multi-dimensional contiguous memory pools.
+
+## Feature 6: Custom Allocator APIs (`std::alloc::Allocator`)
+To support ultra-low-latency game engines and High-Frequency Trading (HFT) platforms, we will hook into Rust's nightly `Allocator` API. By modifying `SliceBuilder` to accept generic allocators (e.g., `in_box_in<A: Allocator>(alloc: A)`), users can pack dynamic multi-slice structs directly into high-speed bump arenas (`bumpalo`), driving allocation overhead essentially to `0 ns`.
+
+## Feature 7: Custom Thin Pointers (`ThinBox`)
+Because a custom DST is dynamically sized, `Box<Packet>` is a 16-byte fat pointer containing both the heap address and a layout length. However, because `slice_struct` already physically stores the lengths of its internal slices inside its prefix handles, the fat pointer length is technically redundant. We will introduce a custom `ThinBox<Packet>` zero-cost abstraction that strips the fat pointer down to 8 bytes, saving memory and CPU cache lines at scale.
+
+## Feature 8: Deep Custom Derives (`Clone`, `Debug`, `PartialEq`)
+Standard Rust `#[derive(Clone)]` triggers severe memory corruption on custom DSTs because it blindly copies pointer handles rather than executing a deep heap duplication. We will expose companion macros (`#[slice_derive(Clone, Debug, PartialEq)]`) that cleanly automate the boilerplate required to recursively copy or compare the dynamically sized trailing memory arrays.
+
+## Feature 9: Ecosystem Integration & Stabilizing `unsafe`
+To elevate `slice_struct` into a production-grade systems foundation, we will systematically migrate our hand-rolled `unsafe` pointer math and memory layouts onto community-hardened crates and modern stable APIs:
+1. **`ptr_meta`:** Instead of leveraging `[MaybeUninit<u8>]` tail hacks to bypass DST limitations, we will integrate `ptr_meta::from_raw_parts` to generate and disassemble custom fat pointers using mathematically proven abstractions.
+2. **`bytemuck` / `zerocopy`:** For position-independent zero-copy parsing, we will implement `bytemuck::Pod` and `zerocopy::FromBytes` traits, forcing our layouts to comply with industry-standard safety invariants.
+3. **`core::mem::offset_of!`:** We will refactor our macro's internal offset resolutions to leverage the newly stabilized `offset_of!` macro, guaranteeing absolute safety against unpredictable struct field reordering by the compiler.

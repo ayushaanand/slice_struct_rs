@@ -147,7 +147,30 @@ mod wrappers;
 
 #[doc(hidden)]
 pub use drop_guard::__DropGuard;
-pub use handle::{SliceBorrow, SliceHandle};
+pub use handle::{AbsoluteMode, RelativeMode, AddressingMode, SliceBorrow, SliceHandle};
 pub use inline::{InlineSlice, SliceMutexGuard, SliceRefGuard};
 pub use init::{OwnedDst, SliceBuilder, SliceInit};
 pub use wrappers::{DstMutex, DstRefCell, WithMutex, WithRefCell};
+
+use core::pin::Pin;
+
+pub trait AsView {
+    type View<'a> where Self: 'a;
+    fn as_view(&self) -> Self::View<'_>;
+}
+
+pub trait AsViewMut {
+    type ViewMut<'a> where Self: 'a;
+    fn as_view_mut(self: Pin<&mut Self>) -> Self::ViewMut<'_>;
+}
+
+pub trait UnpinViewMutExt: AsViewMut + Unpin {
+    fn view_mut(&mut self) -> Self::ViewMut<'_>;
+}
+
+impl<T: AsViewMut + Unpin> UnpinViewMutExt for T {
+    #[inline(always)]
+    fn view_mut(&mut self) -> Self::ViewMut<'_> {
+        Pin::new(self).as_view_mut()
+    }
+}

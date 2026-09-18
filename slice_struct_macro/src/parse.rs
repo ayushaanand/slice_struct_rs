@@ -6,7 +6,9 @@ pub struct SliceStructInput {
     pub generics: Generics,
     pub sized_fields: Vec<Field>,
     pub slice_fields: Vec<(Ident, Type, Visibility)>,
+    pub unpin: bool,
 }
+
 
 pub fn parse_slice_struct(mut input: ItemStruct) -> SliceStructInput {
     let struct_name = input.ident.clone();
@@ -44,5 +46,6 @@ pub fn parse_slice_struct(mut input: ItemStruct) -> SliceStructInput {
         generics,
         sized_fields,
         slice_fields,
+        unpin: false,
     }
 }
