@@ -28,7 +28,7 @@ fn test_iter_basic() {
 
 #[test]
 fn test_mixed_borrow() {
-    let mut s = Str::<i32>::init_iter(0, [10_i32, 20, 30].into_iter(), [1_u32, 2, 3].into_iter()).in_box();
+    let mut s = Str::init_iter(0, [10_i32, 20, 30].into_iter(), [1_u32, 2, 3].into_iter()).in_box();
     let v = s.as_mut().view_mut();
 
     let b_ref: &[i32] = &v.b;
@@ -631,6 +631,7 @@ fn test_rc_refcell() {
 
 use std::sync::Mutex;
 use std::cell::RefCell;
+use crate::pvt::Inner;
 
 #[slice_struct]
 struct Advanced {
@@ -649,7 +650,6 @@ fn test_advanced() {
         [1, 2, 3].into_iter(),
         [100, 200].into_iter(),
     ).in_box();
-    
     assert_eq!(a.view().string, "hello");
     assert_eq!(*a.view().locked, [1, 2, 3]);
     assert_eq!(*a.view().cell, [100, 200]);
@@ -661,3 +661,18 @@ fn test_advanced() {
     assert_eq!(*a.view().cell, [100, 999]);
 }
 
+mod pvt {
+    use slice_struct_macro::slice_struct;
+
+    #[slice_struct]
+    pub struct Inner {
+        a: i32,
+        #[slice] b: [bool]
+    }
+}
+
+use super::pvt::Inner;
+fn test_pvt() {
+    let p = Inner::init_def(0, (true, 3)).in_box();
+
+}

@@ -8,8 +8,6 @@ use crate::wrappers::{DstMutex, WithMutex, DstRefCell, WithRefCell};
 
 /// A heap-allocated, fully data-initialized, but NOT YET PINNED `slice_struct`.
 ///
-/// The internal `SliceHandle` pointers have not been written. Because it contains
-/// no self-referential pointers, this type is safely moveable.
 pub struct OwnedDst<T: ?Sized> {
     pub ptr: NonNull<T>,
     pub layout: Layout,
@@ -25,7 +23,6 @@ impl<T: ?Sized> Drop for OwnedDst<T> {
     }
 }
 
-/// Core trait implemented by the macro to initialize a `slice_struct`.
 pub unsafe trait SliceInit<T: ?Sized> {
     /// Computes the exact memory layout required for the struct.
     fn layout(&self) -> Layout;

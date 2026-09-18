@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use crate::parse::SliceStructInput;
 
-pub fn generate(input: &SliceStructInput) -> TokenStream {
+pub fn generate(input: &SliceStructInput) -> (TokenStream, TokenStream) {
     let struct_name = &input.struct_name;
     let vis = &input.vis;
 
@@ -16,14 +16,14 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let ident = field.ident.as_ref().unwrap();
         let internal_ident = format_ident!("__{}", ident);
         let ty = &field.ty;
-        prefix_fields.extend(quote! { #internal_ident: #ty, });
-        actual_fields.extend(quote! { #internal_ident: #ty, });
+        prefix_fields.extend(quote! { #[doc(hidden)] #internal_ident: #ty, });
+        actual_fields.extend(quote! { #[doc(hidden)] #internal_ident: #ty, });
     }
 
     let mode = if input.unpin {
-        quote! { ::slice_struct::RelativeMode }
+        quote! { ::slice_struct::__private::RelativeMode }
     } else {
-        quote! { ::slice_struct::AbsoluteMode }
+        quote! { ::slice_struct::__private::AbsoluteMode }
     };
 
     for (i, (ident, ty, _)) in input.slice_fields.iter().enumerate() {
@@ -32,59 +32,68 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let state_ident = format_ident!("__{}_state", ident);
 
         prefix_fields.extend(quote! {
-            #state_ident: <#ty as ::slice_struct::InlineSlice>::State,
-            #align_ident: [<#ty as ::slice_struct::InlineSlice>::Element; 0],
-            #internal_ident: ::slice_struct::SliceHandle<<#ty as ::slice_struct::InlineSlice>::Element, #mode>,
+            #[doc(hidden)] #state_ident: <#ty as ::slice_struct::__private::InlineSlice>::State,
+            #[doc(hidden)] #align_ident: [<#ty as ::slice_struct::__private::InlineSlice>::Element; 0],
+            #[doc(hidden)] #internal_ident: ::slice_struct::__private::SliceHandle<<#ty as ::slice_struct::__private::InlineSlice>::Element, #mode>,
         });
         actual_fields.extend(quote! {
-            #state_ident: <#ty as ::slice_struct::InlineSlice>::State,
-            #align_ident: [<#ty as ::slice_struct::InlineSlice>::Element; 0],
-            #internal_ident: ::slice_struct::SliceHandle<<#ty as ::slice_struct::InlineSlice>::Element, #mode>,
+            #[doc(hidden)] #state_ident: <#ty as ::slice_struct::__private::InlineSlice>::State,
+            #[doc(hidden)] #align_ident: [<#ty as ::slice_struct::__private::InlineSlice>::Element; 0],
+            #[doc(hidden)] #internal_ident: ::slice_struct::__private::SliceHandle<<#ty as ::slice_struct::__private::InlineSlice>::Element, #mode>,
         });
     }
     
     prefix_fields.extend(quote! {
-        __pin: <#mode as ::slice_struct::AddressingMode>::Marker,
+        #[doc(hidden)] __pin: <#mode as ::slice_struct::__private::AddressingMode>::Marker,
     });
 
     let data_field = quote! {
-        __pin: <#mode as ::slice_struct::AddressingMode>::Marker,
+        #[doc(hidden)] __pin: <#mode as ::slice_struct::__private::AddressingMode>::Marker,
         #[doc(hidden)]
-        pub __data_tail: [::core::mem::MaybeUninit<u8>]
+        __data_tail: [::core::mem::MaybeUninit<u8>]
     };
 
     let generics = &input.generics;
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     let mut drop_slices = quote! {};
-    for (ident, ty, _) in &input.slice_fields {
+    for (ident, _, _) in &input.slice_fields {
         let internal_ident = format_ident!("__{}", ident);
         drop_slices.extend(quote! {
             unsafe {
                 let base_ptr = self as *mut _ as *mut u8;
-                let data = self.#internal_ident.as_non_null(base_ptr);
+                let data = self.0.#internal_ident.as_non_null(base_ptr);
                 ::core::ptr::drop_in_place(data.as_ptr());
             }
         });
     }
 
-    quote! {
+    let private_structs = quote! {
         #[repr(C)]
-        #[doc(hidden)]
         #vis struct #sized_prefix_ident #generics {
             #prefix_fields
         }
+    };
 
+    let inner_struct_name = format_ident!("{}__Inner", struct_name);
+
+    let public_structs = quote! {
         #[repr(C)]
-        #vis struct #struct_name #generics {
+        #[doc(hidden)]
+        #vis struct #inner_struct_name #generics {
             #actual_fields
             #data_field
         }
+
+        #[repr(transparent)]
+        #vis struct #struct_name #generics(#inner_struct_name #ty_generics);
         
         impl #impl_generics ::core::ops::Drop for #struct_name #ty_generics #where_clause {
             fn drop(&mut self) {
                 #drop_slices
             }
         }
-    }
+    };
+
+    (private_structs, public_structs)
 }

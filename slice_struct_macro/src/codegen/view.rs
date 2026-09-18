@@ -30,29 +30,29 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let fvis = &field.vis;
         
         view_fields.extend(quote! { #fvis #ident: &'__a #ty, });
-        view_init.extend(quote! { #ident: &this.#internal_ident, });
+        view_init.extend(quote! { #ident: &this.0.#internal_ident, });
         
         view_mut_fields.extend(quote! { #fvis #ident: &'__a mut #ty, });
-        view_mut_init.extend(quote! { #ident: &mut this.#internal_ident, });
+        view_mut_init.extend(quote! { #ident: &mut this.0.#internal_ident, });
     }
 
     for (ident, ty, fvis) in &input.slice_fields {
         let internal_ident = format_ident!("__{}", ident);
         let state_ident = format_ident!("__{}_state", ident);
         
-        view_fields.extend(quote! { #fvis #ident: <#ty as ::slice_struct::InlineSlice>::View<'__a>, });
+        view_fields.extend(quote! { #fvis #ident: <#ty as ::slice_struct::__private::InlineSlice>::View<'__a>, });
         view_init.extend(quote! { 
-            #ident: <#ty as ::slice_struct::InlineSlice>::project(
-                &this.#state_ident,
-                this.#internal_ident.as_non_null(base_ptr)
+            #ident: <#ty as ::slice_struct::__private::InlineSlice>::project(
+                &this.0.#state_ident,
+                this.0.#internal_ident.as_non_null(base_ptr)
             ),
         });
         
-        view_mut_fields.extend(quote! { #fvis #ident: <#ty as ::slice_struct::InlineSlice>::ViewMut<'__a>, });
+        view_mut_fields.extend(quote! { #fvis #ident: <#ty as ::slice_struct::__private::InlineSlice>::ViewMut<'__a>, });
         view_mut_init.extend(quote! {
-            #ident: <#ty as ::slice_struct::InlineSlice>::project_mut(
-                &this.#state_ident,
-                this.#internal_ident.as_non_null(base_ptr)
+            #ident: <#ty as ::slice_struct::__private::InlineSlice>::project_mut(
+                &this.0.#state_ident,
+                this.0.#internal_ident.as_non_null(base_ptr)
             ),
         });
     }

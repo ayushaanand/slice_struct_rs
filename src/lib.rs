@@ -146,11 +146,18 @@ mod init;
 mod wrappers;
 
 #[doc(hidden)]
-pub use drop_guard::__DropGuard;
-pub use handle::{AbsoluteMode, RelativeMode, AddressingMode, SliceBorrow, SliceHandle};
-pub use inline::{InlineSlice, SliceMutexGuard, SliceRefGuard};
-pub use init::{OwnedDst, SliceBuilder, SliceInit};
-pub use wrappers::{DstMutex, DstRefCell, WithMutex, WithRefCell};
+pub mod __private {
+    pub use crate::drop_guard::__DropGuard;
+    pub use crate::handle::{AddressingMode, AbsoluteMode, RelativeMode, SliceHandle};
+    pub use crate::inline::InlineSlice;
+    pub use crate::init::{OwnedDst, SliceInit};
+    pub use crate::wrappers::{WithMutex, WithRefCell};
+}
+
+pub use handle::SliceBorrow;
+pub use inline::{SliceMutexGuard, SliceRefGuard};
+pub use init::SliceBuilder;
+pub use wrappers::{DstMutex, DstRefCell};
 
 use core::pin::Pin;
 

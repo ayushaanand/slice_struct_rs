@@ -10,11 +10,12 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     
     let init_iter_ident = format_ident!("__{}InitIter", struct_name);
     let init_def_ident = format_ident!("__{}InitDef", struct_name);
+    let layout_helper_ident = format_ident!("{}_LayoutHelper", struct_name);
 
     let mode = if input.unpin {
-        quote! { ::slice_struct::RelativeMode }
+        quote! { ::slice_struct::__private::RelativeMode }
     } else {
-        quote! { ::slice_struct::AbsoluteMode }
+        quote! { ::slice_struct::__private::AbsoluteMode }
     };
     
     // Shared prefix init logic
@@ -32,7 +33,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     let mut fixup_len_args = quote! {};
     for (ident, _, _) in &input.slice_fields {
         let internal_ident = format_ident!("__{}", ident);
-        fixup_len_args.extend(quote! { (*ptr).#internal_ident.len, });
+        fixup_len_args.extend(quote! { (*ptr).0.#internal_ident.len, });
     }
     
     let offset_vars: Vec<_> = input.slice_fields.iter().map(|(id, _, _)| format_ident!("{}_offset", id)).collect();
@@ -43,8 +44,8 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let offset = &offset_vars[i];
         fixup_write_pointers.extend(quote! {
             ::core::ptr::write(
-                ::core::ptr::addr_of_mut!((*ptr).#internal_ident.ptr_data),
-                <#mode as ::slice_struct::AddressingMode>::store::<<#ty as ::slice_struct::InlineSlice>::Element>(ptr as *mut u8, #offset)
+                ::core::ptr::addr_of_mut!((*ptr).0.#internal_ident.ptr_data),
+                <#mode as ::slice_struct::__private::AddressingMode>::store::<<#ty as ::slice_struct::__private::InlineSlice>::Element>(ptr as *mut u8, #offset)
             );
         });
     }
@@ -53,7 +54,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     
     let fixup_impl = quote! {
         unsafe fn fixup(ptr: *mut #struct_name #ty_generics) {
-            let (_, #(#offset_vars),*) = #struct_name #turbofish::__layout(#fixup_len_args);
+            let (_, #(#offset_vars),*) = #layout_helper_ident #turbofish::calculate_layout(#fixup_len_args);
             #fixup_write_pointers
         }
         
@@ -87,7 +88,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         iter_generics.params.push(::syn::parse_quote!(#generic_ident));
         iter_type_params.push(generic_ident.clone());
         iter_fields.extend(quote! { pub #ident: #generic_ident, });
-        iter_bounds.extend(quote! { #generic_ident: ::core::iter::ExactSizeIterator<Item = <#ty as ::slice_struct::InlineSlice>::Element>, });
+        iter_bounds.extend(quote! { #generic_ident: ::core::iter::ExactSizeIterator<Item = <#ty as ::slice_struct::__private::InlineSlice>::Element>, });
         
         iter_fn_args.extend(quote! { mut #ident: #generic_ident, });
         iter_fn_init.extend(quote! { #ident, });
@@ -98,8 +99,8 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         
         let offset = &offset_vars[i];
         iter_write_slices.extend(quote! {
-            let field_ptr = ptr.add(#offset).cast::<<#ty as ::slice_struct::InlineSlice>::Element>();
-            let mut guard = ::slice_struct::__DropGuard::new(field_ptr);
+            let field_ptr = ptr.add(#offset).cast::<<#ty as ::slice_struct::__private::InlineSlice>::Element>();
+            let mut guard = ::slice_struct::__private::__DropGuard::new(field_ptr);
             let mut iter = self.#ident.into_iter();
             for j in 0..#len_ident {
                 let item = iter.next().expect("ExactSizeIterator yielded fewer elements than its len()");
@@ -118,15 +119,15 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let state_ident = format_ident!("__{}_state", ident);
         let len_ident = format_ident!("{}_len", ident);
         prefix_init_iter.extend(quote! {
-            #state_ident: <#ty as ::slice_struct::InlineSlice>::init_state(),
-            #internal_ident: ::slice_struct::SliceHandle {
-                ptr_data: <#mode as ::slice_struct::AddressingMode>::dummy::<<#ty as ::slice_struct::InlineSlice>::Element>(),
+            #state_ident: <#ty as ::slice_struct::__private::InlineSlice>::init_state(),
+            #internal_ident: ::slice_struct::__private::SliceHandle {
+                ptr_data: <#mode as ::slice_struct::__private::AddressingMode>::dummy::<<#ty as ::slice_struct::__private::InlineSlice>::Element>(),
                 len: #len_ident,
                 _marker: ::core::marker::PhantomData,
             },
         });
     }
-    prefix_init_iter.extend(quote! { __pin: <#mode as ::slice_struct::AddressingMode>::MARKER_INIT, });
+    prefix_init_iter.extend(quote! { __pin: <#mode as ::slice_struct::__private::AddressingMode>::MARKER_INIT, });
 
     let iter_def = quote! {
         #[doc(hidden)]
@@ -135,19 +136,19 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
             _marker: ::core::marker::PhantomData<#struct_name #ty_generics>,
         }
         
-        unsafe impl #iter_impl_generics ::slice_struct::SliceInit<#struct_name #ty_generics> for #init_iter_ident #iter_ty_generics
+        unsafe impl #iter_impl_generics ::slice_struct::__private::SliceInit<#struct_name #ty_generics> for #init_iter_ident #iter_ty_generics
         where #iter_bounds
         {
             fn layout(&self) -> ::std::alloc::Layout {
                 #iter_len_vars
-                #struct_name #turbofish::__layout(#iter_len_args).0
+                #layout_helper_ident #turbofish::calculate_layout(#iter_len_args).0
             }
             
             #fixup_impl
             
-            unsafe fn write_data(mut self, ptr: *mut u8) -> ::slice_struct::OwnedDst<#struct_name #ty_generics> {
+            unsafe fn write_data(mut self, ptr: *mut u8) -> ::slice_struct::__private::OwnedDst<#struct_name #ty_generics> {
                 #iter_len_vars
-                let (layout, #(#offset_vars),*) = #struct_name #turbofish::__layout(#iter_len_args);
+                let (layout, #(#offset_vars),*) = #layout_helper_ident #turbofish::calculate_layout(#iter_len_args);
                 let fat_ptr = self.make_fat_ptr(ptr);
                 
                 let sized_ptr = ptr.cast::<#sized_prefix_ident #ty_generics>();
@@ -155,7 +156,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
                 
                 #iter_write_slices
                 
-                ::slice_struct::OwnedDst {
+                ::slice_struct::__private::OwnedDst {
                     ptr: ::core::ptr::NonNull::new_unchecked(fat_ptr),
                     layout
                 }
@@ -181,10 +182,10 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     }
     
     for (i, (ident, ty, _)) in input.slice_fields.iter().enumerate() {
-        def_bounds.extend(quote! { <#ty as ::slice_struct::InlineSlice>::Element: ::core::clone::Clone, });
-        def_fields.extend(quote! { pub #ident: (<#ty as ::slice_struct::InlineSlice>::Element, usize), });
+        def_bounds.extend(quote! { <#ty as ::slice_struct::__private::InlineSlice>::Element: ::core::clone::Clone, });
+        def_fields.extend(quote! { pub #ident: (<#ty as ::slice_struct::__private::InlineSlice>::Element, usize), });
         
-        def_fn_args.extend(quote! { #ident: (<#ty as ::slice_struct::InlineSlice>::Element, usize), });
+        def_fn_args.extend(quote! { #ident: (<#ty as ::slice_struct::__private::InlineSlice>::Element, usize), });
         def_fn_init.extend(quote! { #ident, });
         
         let len_ident = format_ident!("{}_len", ident);
@@ -194,7 +195,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let offset = &offset_vars[i];
         def_write_slices.extend(quote! {
             let def_len = self.#ident.1;
-            let field_ptr = ptr.add(#offset).cast::<<#ty as ::slice_struct::InlineSlice>::Element>();
+            let field_ptr = ptr.add(#offset).cast::<<#ty as ::slice_struct::__private::InlineSlice>::Element>();
             if def_len > 0 {
                 let def_val = self.#ident.0;
                 for j in 0..def_len - 1 {
@@ -211,19 +212,19 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let state_ident = format_ident!("__{}_state", ident);
         let len_ident = format_ident!("{}_len", ident);
         prefix_init_def.extend(quote! {
-            #state_ident: <#ty as ::slice_struct::InlineSlice>::init_state(),
-            #internal_ident: ::slice_struct::SliceHandle {
-                ptr_data: <#mode as ::slice_struct::AddressingMode>::dummy::<<#ty as ::slice_struct::InlineSlice>::Element>(),
+            #state_ident: <#ty as ::slice_struct::__private::InlineSlice>::init_state(),
+            #internal_ident: ::slice_struct::__private::SliceHandle {
+                ptr_data: <#mode as ::slice_struct::__private::AddressingMode>::dummy::<<#ty as ::slice_struct::__private::InlineSlice>::Element>(),
                 len: #len_ident,
                 _marker: ::core::marker::PhantomData,
             },
         });
     }
-    prefix_init_def.extend(quote! { __pin: <#mode as ::slice_struct::AddressingMode>::MARKER_INIT, });
+    prefix_init_def.extend(quote! { __pin: <#mode as ::slice_struct::__private::AddressingMode>::MARKER_INIT, });
     
     let mut def_generics = input.generics.clone();
     for (_, ty, _) in &input.slice_fields {
-        def_generics.make_where_clause().predicates.push(::syn::parse_quote!(<#ty as ::slice_struct::InlineSlice>::Element: ::core::clone::Clone));
+        def_generics.make_where_clause().predicates.push(::syn::parse_quote!(<#ty as ::slice_struct::__private::InlineSlice>::Element: ::core::clone::Clone));
     }
     let (_, _, def_where_clause_with_clone) = def_generics.split_for_impl();
 
@@ -234,19 +235,19 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
             _marker: ::core::marker::PhantomData<#struct_name #ty_generics>,
         }
         
-        unsafe impl #impl_generics ::slice_struct::SliceInit<#struct_name #ty_generics> for #init_def_ident #ty_generics
+        unsafe impl #impl_generics ::slice_struct::__private::SliceInit<#struct_name #ty_generics> for #init_def_ident #ty_generics
         #def_where_clause_with_clone
         {
             fn layout(&self) -> ::std::alloc::Layout {
                 #def_len_vars
-                #struct_name #turbofish::__layout(#def_len_args).0
+                #layout_helper_ident #turbofish::calculate_layout(#def_len_args).0
             }
             
             #fixup_impl
             
-            unsafe fn write_data(self, ptr: *mut u8) -> ::slice_struct::OwnedDst<#struct_name #ty_generics> {
+            unsafe fn write_data(self, ptr: *mut u8) -> ::slice_struct::__private::OwnedDst<#struct_name #ty_generics> {
                 #def_len_vars
-                let (layout, #(#offset_vars),*) = #struct_name #turbofish::__layout(#def_len_args);
+                let (layout, #(#offset_vars),*) = #layout_helper_ident #turbofish::calculate_layout(#def_len_args);
                 let fat_ptr = self.make_fat_ptr(ptr);
                 
                 let sized_ptr = ptr.cast::<#sized_prefix_ident #ty_generics>();
@@ -254,7 +255,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
                 
                 #def_write_slices
                 
-                ::slice_struct::OwnedDst {
+                ::slice_struct::__private::OwnedDst {
                     ptr: ::core::ptr::NonNull::new_unchecked(fat_ptr),
                     layout
                 }
@@ -270,14 +271,14 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         
         impl #impl_generics #struct_name #ty_generics #where_clause {
             #[doc = "Initialize this struct from iterators, returning a builder."]
-            #vis fn init_iter<#(#iter_type_params_list),*>(#iter_fn_args) -> ::slice_struct::SliceBuilder<Self, #init_iter_ident #iter_ty_generics>
+            #vis fn init_iter<#(#iter_type_params_list),*>(#iter_fn_args) -> ::slice_struct::SliceBuilder<Self, impl ::slice_struct::__private::SliceInit<Self>>
             where #iter_bounds
             {
                 ::slice_struct::SliceBuilder::new(#init_iter_ident { #iter_fn_init _marker: ::core::marker::PhantomData })
             }
             
             #[doc = "Initialize this struct from cloned values, returning a builder."]
-            #vis fn init_def(#def_fn_args) -> ::slice_struct::SliceBuilder<Self, #init_def_ident #ty_generics>
+            #vis fn init_def(#def_fn_args) -> ::slice_struct::SliceBuilder<Self, impl ::slice_struct::__private::SliceInit<Self>>
             #def_where_clause_with_clone
             {
                 ::slice_struct::SliceBuilder::new(#init_def_ident { #def_fn_init _marker: ::core::marker::PhantomData })
