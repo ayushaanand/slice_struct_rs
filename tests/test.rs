@@ -152,7 +152,7 @@ fn test_mixed_empty_and_full() {
     assert_eq!(s.view().a, &[]);
     assert_eq!(s.view().b, &[2, 2, 2, 2, 2]);
     assert_eq!(s.view().c, &[]);
-    
+
     let s2 = MixedEmpty::init_iter(
         [1, 2].into_iter(),
         [].into_iter(),
@@ -631,7 +631,6 @@ fn test_rc_refcell() {
 
 use std::sync::Mutex;
 use std::cell::RefCell;
-use crate::pvt::Inner;
 
 #[slice_struct]
 struct Advanced {
@@ -659,20 +658,4 @@ fn test_advanced() {
     
     assert_eq!(*a.view().locked, [99, 2, 3]);
     assert_eq!(*a.view().cell, [100, 999]);
-}
-
-mod pvt {
-    use slice_struct_macro::slice_struct;
-
-    #[slice_struct]
-    pub struct Inner {
-        a: i32,
-        #[slice] b: [bool]
-    }
-}
-
-use super::pvt::Inner;
-fn test_pvt() {
-    let p = Inner::init_def(0, (true, 3)).in_box();
-
 }
