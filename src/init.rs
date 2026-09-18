@@ -8,8 +8,6 @@ use crate::wrappers::{DstMutex, WithMutex, DstRefCell, WithRefCell};
 
 /// A heap-allocated, fully data-initialized, but NOT YET PINNED `slice_struct`.
 ///
-/// The internal `SliceHandle` pointers have not been written. Because it contains
-/// no self-referential pointers, this type is safely moveable.
 pub struct OwnedDst<T: ?Sized> {
     pub ptr: NonNull<T>,
     pub layout: Layout,
@@ -25,7 +23,6 @@ impl<T: ?Sized> Drop for OwnedDst<T> {
     }
 }
 
-/// Core trait implemented by the macro to initialize a `slice_struct`.
 pub unsafe trait SliceInit<T: ?Sized> {
     /// Computes the exact memory layout required for the struct.
     fn layout(&self) -> Layout;
@@ -161,3 +158,24 @@ impl<T: ?Sized, I: SliceInit<T>> SliceBuilder<T, I> {
         SliceBuilder::new(WithRefCell(self.init))
     }
 }
+
+impl<T: ?Sized + Unpin, I: SliceInit<T>> SliceBuilder<T, I> {
+    /// Allocates the struct into a `Box`, returning an unpinned pointer.
+    /// This is only available if the struct is position-independent (`#[slice_struct(unpin)]`).
+    pub fn in_box_unpin(self) -> Box<T> {
+        Pin::into_inner(self.in_box())
+    }
+
+    /// Allocates the struct into an `Arc`, returning an unpinned pointer.
+    /// This is only available if the struct is position-independent (`#[slice_struct(unpin)]`).
+    pub fn in_arc_unpin(self) -> Arc<T> {
+        Pin::into_inner(self.in_arc())
+    }
+
+    /// Allocates the struct into an `Rc`, returning an unpinned pointer.
+    /// This is only available if the struct is position-independent (`#[slice_struct(unpin)]`).
+    pub fn in_rc_unpin(self) -> Rc<T> {
+        Pin::into_inner(self.in_rc())
+    }
+}
+

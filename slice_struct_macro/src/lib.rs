@@ -12,9 +12,11 @@ mod codegen;
 /// Transform a struct so that fields marked `#[slice]` become inline,
 /// variable-length slices packed into a single heap allocation.
 #[proc_macro_attribute]
-pub fn slice_struct(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn slice_struct(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let unpin = attr.to_string().contains("unpin");
     let input = parse_macro_input!(item as syn::ItemStruct);
-    let parsed = parse::parse_slice_struct(input);
+    let mut parsed = parse::parse_slice_struct(input);
+    parsed.unpin = unpin;
     let expanded = codegen::generate(&parsed);
     expanded.into()
 }

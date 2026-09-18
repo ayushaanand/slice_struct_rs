@@ -14,7 +14,7 @@
 //! 
 //! ```toml
 //! [dependencies]
-//! slice_struct = "0.3.0"
+//! slice_struct = "0.3.1"
 //! ```
 //! 
 //! ### 1. Defining and Reading
@@ -146,8 +146,38 @@ mod init;
 mod wrappers;
 
 #[doc(hidden)]
-pub use drop_guard::__DropGuard;
-pub use handle::{SliceBorrow, SliceHandle};
-pub use inline::{InlineSlice, SliceMutexGuard, SliceRefGuard};
-pub use init::{OwnedDst, SliceBuilder, SliceInit};
-pub use wrappers::{DstMutex, DstRefCell, WithMutex, WithRefCell};
+pub mod __private {
+    pub use crate::drop_guard::__DropGuard;
+    pub use crate::handle::{AddressingMode, AbsoluteMode, RelativeMode, SliceHandle};
+    pub use crate::inline::InlineSlice;
+    pub use crate::init::{OwnedDst, SliceInit};
+    pub use crate::wrappers::{WithMutex, WithRefCell};
+}
+
+pub use handle::SliceBorrow;
+pub use inline::{SliceMutexGuard, SliceRefGuard};
+pub use init::SliceBuilder;
+pub use wrappers::{DstMutex, DstRefCell};
+
+use core::pin::Pin;
+
+pub trait AsView {
+    type View<'a> where Self: 'a;
+    fn as_view(&self) -> Self::View<'_>;
+}
+
+pub trait AsViewMut {
+    type ViewMut<'a> where Self: 'a;
+    fn as_view_mut(self: Pin<&mut Self>) -> Self::ViewMut<'_>;
+}
+
+pub trait UnpinViewMutExt: AsViewMut + Unpin {
+    fn view_mut(&mut self) -> Self::ViewMut<'_>;
+}
+
+impl<T: AsViewMut + Unpin> UnpinViewMutExt for T {
+    #[inline(always)]
+    fn view_mut(&mut self) -> Self::ViewMut<'_> {
+        Pin::new(self).as_view_mut()
+    }
+}

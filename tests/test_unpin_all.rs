@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use slice_struct::slice_struct;
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct Str<T: Clone> {
     a: u32,
     #[slice] b: [T],
@@ -72,7 +72,7 @@ fn test_def_zero_len() {
 
 // ── Drop correctness (non-Copy element types) ─────────────────────────────
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct SStr {
     a: String,
     #[slice] b: [String],
@@ -92,7 +92,7 @@ fn test_def_drop() {
     assert_eq!(s.view().b, &["hello", "hello", "hello"]);
 }
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct NoSlices {
     pub a: u32,
     pub b: bool,
@@ -116,7 +116,7 @@ fn test_no_slices_def() {
     assert_eq!(*s.view().b, true);
 }
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct OneSlice {
     #[slice] pub data: [u8],
 }
@@ -139,7 +139,7 @@ fn test_only_one_slice_def() {
 
 // ── New edge cases ──────────────────────────────────────────────────────────
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct MixedEmpty {
     #[slice] a: [u8],
     #[slice] b: [u16],
@@ -163,7 +163,7 @@ fn test_mixed_empty_and_full() {
     assert_eq!(s2.view().c, &[3, 4, 5]);
 }
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct ZstStruct {
     #[slice] zst: [()],
 }
@@ -178,7 +178,7 @@ fn test_zst() {
 #[derive(Clone, PartialEq, Debug)]
 struct Aligned64(u8);
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct HighlyAligned {
     a: u8,
     #[slice] data: [Aligned64],
@@ -220,7 +220,7 @@ impl Drop for DropCounter {
     }
 }
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct DropTest {
     #[slice] items: [DropCounter],
 }
@@ -260,7 +260,7 @@ impl ExactSizeIterator for BadIter {
     }
 }
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct IterTest {
     #[slice] data: [u32],
 }
@@ -283,7 +283,7 @@ fn test_lying_iterator_short() {
 
 // ── Lifetimes and Generics ──────────────────────────────────────────────────
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct WithLifetimes<'a, T: Clone> {
     prefix: &'a str,
     #[slice] data: [T],
@@ -299,7 +299,7 @@ fn test_lifetimes_and_generics() {
 
 // ── Complex Layout Padding ──────────────────────────────────────────────────
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct KitchenSink {
     a: u8,
     #[slice] b: [u64],
@@ -373,7 +373,7 @@ fn test_slice_independence() {
 
 // ── Large allocations ────────────────────────────────────────────────────
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct BigBuf {
     tag: u64,
     #[slice] data: [u8],
@@ -395,7 +395,7 @@ fn test_large_allocation() {
 
 use std::sync::Arc;
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct ArcSlice {
     #[slice] items: [Arc<u32>],
 }
@@ -437,7 +437,7 @@ impl ExactSizeIterator for PanicsAt {
     fn len(&self) -> usize { self.panics_at + 1 }
 }
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct StringSlice {
     #[slice] words: [String],
 }
@@ -482,7 +482,7 @@ fn test_panic_mid_iter_no_leak() {
 #[repr(align(16))] #[derive(Clone)] struct A16(u8);
 #[repr(align(32))] #[derive(Clone)] struct A32(u8);
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct TwoAligned {
     tag: u8,
     #[slice] a: [A16],
@@ -518,7 +518,7 @@ fn test_iter_mut_all_elements() {
 
 // ── Struct with only sized fields (no slices) still works end-to-end ──────
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct AllSized {
     pub x: i64,
     pub y: f64,
@@ -564,7 +564,7 @@ fn test_sliceborrow_coercions() {
 
 // ── Tests for Arc, Rc, Mutex, RefCell Wrappers ───────────────────────────
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct WrapTest {
     pub counter: u32,
     #[slice] pub data: [u8],
@@ -632,7 +632,7 @@ fn test_rc_refcell() {
 use std::sync::Mutex;
 use std::cell::RefCell;
 
-#[slice_struct]
+#[slice_struct(unpin)]
 struct Advanced {
     #[slice]
     string: str,

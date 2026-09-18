@@ -30,29 +30,29 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let fvis = &field.vis;
         
         view_fields.extend(quote! { #fvis #ident: &'__a #ty, });
-        view_init.extend(quote! { #ident: &this.#internal_ident, });
+        view_init.extend(quote! { #ident: &this.0.#internal_ident, });
         
         view_mut_fields.extend(quote! { #fvis #ident: &'__a mut #ty, });
-        view_mut_init.extend(quote! { #ident: &mut this.#internal_ident, });
+        view_mut_init.extend(quote! { #ident: &mut this.0.#internal_ident, });
     }
 
     for (ident, ty, fvis) in &input.slice_fields {
         let internal_ident = format_ident!("__{}", ident);
         let state_ident = format_ident!("__{}_state", ident);
         
-        view_fields.extend(quote! { #fvis #ident: <#ty as ::slice_struct::InlineSlice>::View<'__a>, });
+        view_fields.extend(quote! { #fvis #ident: <#ty as ::slice_struct::__private::InlineSlice>::View<'__a>, });
         view_init.extend(quote! { 
-            #ident: <#ty as ::slice_struct::InlineSlice>::project(
-                &this.#state_ident,
-                this.#internal_ident.as_non_null()
+            #ident: <#ty as ::slice_struct::__private::InlineSlice>::project(
+                &this.0.#state_ident,
+                this.0.#internal_ident.as_non_null(base_ptr)
             ),
         });
         
-        view_mut_fields.extend(quote! { #fvis #ident: <#ty as ::slice_struct::InlineSlice>::ViewMut<'__a>, });
+        view_mut_fields.extend(quote! { #fvis #ident: <#ty as ::slice_struct::__private::InlineSlice>::ViewMut<'__a>, });
         view_mut_init.extend(quote! {
-            #ident: <#ty as ::slice_struct::InlineSlice>::project_mut(
-                &this.#state_ident,
-                this.#internal_ident.as_non_null()
+            #ident: <#ty as ::slice_struct::__private::InlineSlice>::project_mut(
+                &this.0.#state_ident,
+                this.0.#internal_ident.as_non_null(base_ptr)
             ),
         });
     }
@@ -68,23 +68,41 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
             #view_mut_fields
         }
 
-        impl #impl_generics #struct_name #ty_generics #where_clause {
-            #[doc = "Returns a struct containing immutable references to all fields."]
-            #vis fn view<'__a>(&'__a self) -> #view_ident #view_ty_generics {
+        impl #impl_generics ::slice_struct::AsView for #struct_name #ty_generics #where_clause {
+            type View<'__a> = #view_ident #view_ty_generics where Self: '__a;
+
+            fn as_view<'__a>(&'__a self) -> Self::View<'__a> {
                 let this = self;
+                let base_ptr = this as *const _ as *const u8;
                 #view_ident {
                     #view_init
                 }
             }
+        }
 
-            #[doc = "Returns a struct containing mutable references to all fields, allowing safe disjoint borrowing of the slice fields."]
-            #vis fn view_mut<'__a>(self: ::core::pin::Pin<&'__a mut Self>) -> #view_mut_ident #view_ty_generics {
+        impl #impl_generics ::slice_struct::AsViewMut for #struct_name #ty_generics #where_clause {
+            type ViewMut<'__a> = #view_mut_ident #view_ty_generics where Self: '__a;
+
+            fn as_view_mut<'__a>(self: ::core::pin::Pin<&'__a mut Self>) -> Self::ViewMut<'__a> {
                 unsafe {
                     let this = self.get_unchecked_mut();
+                    let base_ptr = this as *const _ as *const u8;
                     #view_mut_ident {
                         #view_mut_init
                     }
                 }
+            }
+        }
+
+        impl #impl_generics #struct_name #ty_generics #where_clause {
+            #[doc = "Returns a struct containing immutable references to all fields."]
+            #vis fn view<'__a>(&'__a self) -> #view_ident #view_ty_generics {
+                ::slice_struct::AsView::as_view(self)
+            }
+
+            #[doc = "Returns a struct containing mutable references to all fields, allowing safe disjoint borrowing of the slice fields."]
+            #vis fn view_mut<'__a>(self: ::core::pin::Pin<&'__a mut Self>) -> #view_mut_ident #view_ty_generics {
+                ::slice_struct::AsViewMut::as_view_mut(self)
             }
         }
     }

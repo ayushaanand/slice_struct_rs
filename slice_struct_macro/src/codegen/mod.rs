@@ -8,15 +8,18 @@ use quote::quote;
 use crate::parse::SliceStructInput;
 
 pub fn generate(input: &SliceStructInput) -> TokenStream {
-    let structs = structs::generate(input);
+    let (private_structs, public_structs) = structs::generate(input);
     let view = view::generate(input);
     let layout = layout::generate(input);
     let init = init::generate(input);
 
     quote! {
-        #structs
+        #public_structs
         #view
-        #layout
-        #init
+        const _: () = {
+            #private_structs
+            #layout
+            #init
+        };
     }
 }

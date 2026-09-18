@@ -25,18 +25,21 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let offset_ident = format_ident!("{}_offset", ident);
         layout_stmts.extend(quote! {
             let (layout, #offset_ident) =
-                layout.extend(::std::alloc::Layout::array::<<#ty as ::slice_struct::InlineSlice>::Element>(#len_ident).unwrap()).unwrap();
+                layout.extend(::std::alloc::Layout::array::<<#ty as ::slice_struct::__private::InlineSlice>::Element>(#len_ident).unwrap()).unwrap();
         });
     }
     layout_stmts.extend(quote! {
         (layout.pad_to_align(), #(#offset_idents),*)
     });
 
+    let layout_helper_ident = format_ident!("{}_LayoutHelper", struct_name);
+    
     quote! {
-        impl #impl_generics #struct_name #ty_generics #where_clause {
-            #[doc(hidden)]
-            #[inline]
-            pub(crate) fn __layout(#(#len_idents_only: usize),*)
+        #[allow(non_camel_case_types)]
+        struct #layout_helper_ident #impl_generics (::core::marker::PhantomData<#struct_name #ty_generics>) #where_clause;
+        
+        impl #impl_generics #layout_helper_ident #ty_generics #where_clause {
+            fn calculate_layout(#(#len_idents_only: usize),*)
                 -> (::std::alloc::Layout, #(#layout_ret_types),*)
             {
                 #layout_stmts
