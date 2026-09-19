@@ -1,13 +1,13 @@
 #![allow(unsafe_op_in_unsafe_fn)]
-use std::sync::{Mutex, MutexGuard};
-use std::cell::{RefCell, RefMut, Ref, UnsafeCell};
-use std::alloc::Layout;
+use crate::init::{OwnedDst, SliceInit};
 use core::pin::Pin;
-use crate::init::{SliceInit, OwnedDst};
 use core::ptr::NonNull;
+use std::alloc::Layout;
+use std::cell::{Ref, RefCell, RefMut, UnsafeCell};
+use std::sync::{Mutex, MutexGuard};
 
 /// A custom DST-compatible Mutex that locks the entire underlying `slice_struct`.
-/// 
+///
 /// Because a `slice_struct` is a Dynamically Sized Type (DST) whose size isn't
 /// known at compile-time, it cannot be safely wrapped inside a standard `std::sync::Mutex<T>`.
 /// This wrapper guarantees the same thread-safety guarantees, allowing the struct to be
@@ -20,7 +20,7 @@ use core::ptr::NonNull;
 /// let arc_mutex = Packet::init_def(1, (0, 10))
 ///     .with_mutex()
 ///     .in_arc();
-/// 
+///
 /// let mut guard = arc_mutex.lock();
 /// guard.as_mut().view_mut().payload[0] = 99;
 /// ```
@@ -57,7 +57,10 @@ impl<T: ?Sized> DstMutex<T> {
     pub fn lock(&self) -> DstMutexGuard<'_, T> {
         let guard = self.lock.lock().unwrap();
         let data = unsafe { Pin::new_unchecked(&mut *self.data.get()) };
-        DstMutexGuard { _guard: guard, data }
+        DstMutexGuard {
+            _guard: guard,
+            data,
+        }
     }
 }
 
@@ -68,28 +71,28 @@ unsafe impl<T: ?Sized, I: SliceInit<T>> SliceInit<DstMutex<T>> for WithMutex<I> 
         let (layout, _) = Layout::new::<Mutex<()>>().extend(self.0.layout()).unwrap();
         layout.pad_to_align()
     }
-    
+
     fn make_fat_ptr(&self, base: *mut u8) -> *mut DstMutex<T> {
         self.0.make_fat_ptr(base) as *mut DstMutex<T>
     }
-    
+
     unsafe fn write_data(self, ptr: *mut u8) -> OwnedDst<DstMutex<T>> {
         let layout = self.layout();
         let (_, offset) = Layout::new::<Mutex<()>>().extend(self.0.layout()).unwrap();
-        
+
         std::ptr::write(ptr as *mut Mutex<()>, Mutex::new(()));
-        
+
         let data_ptr = ptr.add(offset);
         let fat_ptr = self.make_fat_ptr(ptr);
         let owned_inner = unsafe { self.0.write_data(data_ptr) };
         std::mem::forget(owned_inner);
-        
+
         OwnedDst {
             ptr: unsafe { NonNull::new_unchecked(fat_ptr) },
             layout,
         }
     }
-    
+
     unsafe fn fixup(ptr: *mut DstMutex<T>) {
         let data_ptr = core::ptr::addr_of_mut!((*ptr).data) as *mut T;
         I::fixup(data_ptr);
@@ -97,7 +100,7 @@ unsafe impl<T: ?Sized, I: SliceInit<T>> SliceInit<DstMutex<T>> for WithMutex<I> 
 }
 
 /// A custom DST-compatible RefCell that dynamically checks borrows for the entire underlying `slice_struct`.
-/// 
+///
 /// Because a `slice_struct` is a Dynamically Sized Type (DST) whose size isn't
 /// known at compile-time, it cannot be safely wrapped inside a standard `std::cell::RefCell<T>`.
 /// This wrapper guarantees the same borrow-checking mechanics for dynamic interior mutability.
@@ -109,7 +112,7 @@ unsafe impl<T: ?Sized, I: SliceInit<T>> SliceInit<DstMutex<T>> for WithMutex<I> 
 /// let rc_refcell = Packet::init_def(1, (0, 10))
 ///     .with_refcell()
 ///     .in_rc();
-/// 
+///
 /// let mut guard = rc_refcell.borrow_mut();
 /// guard.as_mut().view_mut().payload[0] = 99;
 /// ```
@@ -148,7 +151,10 @@ impl<T: ?Sized> DstRefCell<T> {
     pub fn borrow_mut(&self) -> DstRefMut<'_, T> {
         let guard = self.lock.borrow_mut();
         let data = unsafe { Pin::new_unchecked(&mut *self.data.get()) };
-        DstRefMut { _guard: guard, data }
+        DstRefMut {
+            _guard: guard,
+            data,
+        }
     }
 }
 
@@ -156,31 +162,35 @@ pub struct WithRefCell<I>(pub I);
 
 unsafe impl<T: ?Sized, I: SliceInit<T>> SliceInit<DstRefCell<T>> for WithRefCell<I> {
     fn layout(&self) -> Layout {
-        let (layout, _) = Layout::new::<RefCell<()>>().extend(self.0.layout()).unwrap();
+        let (layout, _) = Layout::new::<RefCell<()>>()
+            .extend(self.0.layout())
+            .unwrap();
         layout.pad_to_align()
     }
-    
+
     fn make_fat_ptr(&self, base: *mut u8) -> *mut DstRefCell<T> {
         self.0.make_fat_ptr(base) as *mut DstRefCell<T>
     }
-    
+
     unsafe fn write_data(self, ptr: *mut u8) -> OwnedDst<DstRefCell<T>> {
         let layout = self.layout();
-        let (_, offset) = Layout::new::<RefCell<()>>().extend(self.0.layout()).unwrap();
-        
+        let (_, offset) = Layout::new::<RefCell<()>>()
+            .extend(self.0.layout())
+            .unwrap();
+
         std::ptr::write(ptr as *mut RefCell<()>, RefCell::new(()));
-        
+
         let data_ptr = ptr.add(offset);
         let fat_ptr = self.make_fat_ptr(ptr);
         let owned_inner = unsafe { self.0.write_data(data_ptr) };
         std::mem::forget(owned_inner);
-        
+
         OwnedDst {
             ptr: unsafe { NonNull::new_unchecked(fat_ptr) },
             layout,
         }
     }
-    
+
     unsafe fn fixup(ptr: *mut DstRefCell<T>) {
         let data_ptr = core::ptr::addr_of_mut!((*ptr).data) as *mut T;
         I::fixup(data_ptr);

@@ -26,14 +26,24 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
             ::core::ptr::write(::core::ptr::addr_of_mut!((*fat_ptr).0.#internal_ident), self.#ident);
         });
     }
-    for (i, (ident, ty, _)) in input.slice_fields.iter().enumerate() {
+    for (i, field) in input.slice_fields.iter().enumerate() {
+        let ident = field.ident();
+        let ty = field.ty();
         let align_ident = format_ident!("__align_{}", i);
         let internal_ident = format_ident!("__{}", ident);
         let state_ident = format_ident!("__{}_state", ident);
         let len_ident = format_ident!("{}_len", ident);
+
+        let state_val = match field {
+            crate::parse::SliceField::Flat { .. } => quote! { <#ty as ::slice_struct::__private::InlineSlice>::init_state() },
+            crate::parse::SliceField::Arena { .. } => {
+                let arena_ident = format_ident!("{}_arena", ident);
+                quote! { ::core::clone::Clone::clone(&self.#arena_ident) }
+            }
+        };
         write_stmts.extend(quote! {
             ::core::ptr::write(::core::ptr::addr_of_mut!((*fat_ptr).0.#align_ident), []);
-            ::core::ptr::write(::core::ptr::addr_of_mut!((*fat_ptr).0.#state_ident), <#ty as ::slice_struct::__private::InlineSlice>::init_state());
+            ::core::ptr::write(::core::ptr::addr_of_mut!((*fat_ptr).0.#state_ident), #state_val);
             ::core::ptr::write(::core::ptr::addr_of_mut!((*fat_ptr).0.#internal_ident), ::slice_struct::__private::SliceHandle::__new_unchecked(
                 <#mode as ::slice_struct::__private::AddressingMode>::dummy::<<#ty as ::slice_struct::__private::InlineSlice>::Element>(),
                 #len_ident
@@ -46,15 +56,26 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     });
     
     let mut fixup_len_args = quote! {};
-    for (ident, _, _) in &input.slice_fields {
+    for field in &input.slice_fields {
+        let ident = field.ident();
         let internal_ident = format_ident!("__{}", ident);
-        fixup_len_args.extend(quote! { (*ptr).0.#internal_ident.len, });
+        let state_ident = format_ident!("__{}_state", ident);
+        match field {
+            crate::parse::SliceField::Flat { .. } => {
+                fixup_len_args.extend(quote! { (*ptr).0.#internal_ident.len, });
+            }
+            crate::parse::SliceField::Arena { .. } => {
+                fixup_len_args.extend(quote! { (*ptr).0.#internal_ident.len, &(*ptr).0.#state_ident, });
+            }
+        }
     }
     
-    let offset_vars: Vec<_> = input.slice_fields.iter().map(|(id, _, _)| format_ident!("{}_offset", id)).collect();
+    let offset_vars: Vec<_> = input.slice_fields.iter().map(|f| format_ident!("{}_offset", f.ident())).collect();
     
     let mut fixup_write_pointers = quote! {};
-    for (i, (ident, ty, _)) in input.slice_fields.iter().enumerate() {
+    for (i, field) in input.slice_fields.iter().enumerate() {
+        let ident = field.ident();
+        let ty = field.ty();
         let internal_ident = format_ident!("__{}", ident);
         let offset = &offset_vars[i];
         fixup_write_pointers.extend(quote! {
@@ -67,7 +88,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
 
     let turbofish = ty_generics.as_turbofish();
     
-    let fixup_impl = quote! {
+    let fixup_impl = quote! { 
         unsafe fn fixup(ptr: *mut #struct_name #ty_generics) {
             let (_, #(#offset_vars),*) = #layout_helper_ident #turbofish::calculate_layout(#fixup_len_args);
             #fixup_write_pointers
@@ -98,19 +119,39 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         iter_fn_init.extend(quote! { #ident, });
     }
     
-    for (i, (ident, ty, _)) in input.slice_fields.iter().enumerate() {
+    for (i, field) in input.slice_fields.iter().enumerate() {
+        let ident = field.ident();
+        let ty = field.ty();
         let generic_ident = format_ident!("__I{}", i);
         iter_generics.params.push(::syn::parse_quote!(#generic_ident));
         iter_type_params.push(generic_ident.clone());
         iter_fields.extend(quote! { pub #ident: #generic_ident, });
         iter_bounds.extend(quote! { #generic_ident: ::core::iter::ExactSizeIterator<Item = <#ty as ::slice_struct::__private::InlineSlice>::Element>, });
         
-        iter_fn_args.extend(quote! { mut #ident: #generic_ident, });
-        iter_fn_init.extend(quote! { #ident, });
+        match field {
+            crate::parse::SliceField::Flat { .. } => {
+                iter_fn_args.extend(quote! { mut #ident: #generic_ident, });
+                iter_fn_init.extend(quote! { #ident, });
+            }
+            crate::parse::SliceField::Arena { inner_ty, .. } => {
+                let arena_ident = format_ident!("{}_arena", ident);
+                iter_fields.extend(quote! { pub #arena_ident: <#inner_ty as ::slice_struct::ArenaElement>::Arena, });
+                iter_fn_args.extend(quote! { #arena_ident: <#inner_ty as ::slice_struct::ArenaElement>::Arena, mut #ident: #generic_ident, });
+                iter_fn_init.extend(quote! { #arena_ident, #ident, });
+            }
+        }
         
         let len_ident = format_ident!("{}_len", ident);
         iter_len_vars.extend(quote! { let #len_ident = self.#ident.len(); });
-        iter_len_args.extend(quote! { #len_ident, });
+        match field {
+            crate::parse::SliceField::Flat { .. } => {
+                iter_len_args.extend(quote! { #len_ident, });
+            }
+            crate::parse::SliceField::Arena { .. } => {
+                let arena_ident = format_ident!("{}_arena", ident);
+                iter_len_args.extend(quote! { #len_ident, &self.#arena_ident, });
+            }
+        }
         
         let offset = &offset_vars[i];
         iter_write_slices.extend(quote! {
@@ -179,33 +220,73 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         def_fn_init.extend(quote! { #ident, });
     }
     
-    for (i, (ident, ty, _)) in input.slice_fields.iter().enumerate() {
+    for (i, field) in input.slice_fields.iter().enumerate() {
+        let ident = field.ident();
+        let ty = field.ty();
         def_bounds.extend(quote! { <#ty as ::slice_struct::__private::InlineSlice>::Element: ::core::clone::Clone, });
-        def_fields.extend(quote! { pub #ident: (<#ty as ::slice_struct::__private::InlineSlice>::Element, usize), });
         
-        def_fn_args.extend(quote! { #ident: (<#ty as ::slice_struct::__private::InlineSlice>::Element, usize), });
-        def_fn_init.extend(quote! { #ident, });
+        match field {
+            crate::parse::SliceField::Flat { .. } => {
+                def_fields.extend(quote! { pub #ident: (<#ty as ::slice_struct::__private::InlineSlice>::Element, usize), });
+                def_fn_args.extend(quote! { #ident: (<#ty as ::slice_struct::__private::InlineSlice>::Element, usize), });
+                def_fn_init.extend(quote! { #ident, });
+                
+                let offset = &offset_vars[i];
+                def_write_slices.extend(quote! {
+                    let def_len = self.#ident.1;
+                    let field_ptr = ptr.add(#offset).cast::<<#ty as ::slice_struct::__private::InlineSlice>::Element>();
+                    if def_len > 0 {
+                        let def_val = self.#ident.0;
+                        for j in 0..def_len - 1 {
+                            ::core::ptr::write(field_ptr.add(j), ::core::clone::Clone::clone(&def_val));
+                        }
+                        ::core::ptr::write(field_ptr.add(def_len - 1), def_val);
+                    }
+                });
+            }
+            crate::parse::SliceField::Arena { inner_ty, .. } => {
+                let arena_ident = format_ident!("{}_arena", ident);
+                def_fields.extend(quote! {
+                    pub #arena_ident: <#inner_ty as ::slice_struct::ArenaElement>::Arena,
+                    pub #ident: (<<#inner_ty as ::slice_struct::ArenaElement>::Arena as ::slice_struct::ArenaDescriptor>::InitData, usize),
+                });
+                def_fn_args.extend(quote! {
+                    #arena_ident: <#inner_ty as ::slice_struct::ArenaElement>::Arena,
+                    #ident: (<<#inner_ty as ::slice_struct::ArenaElement>::Arena as ::slice_struct::ArenaDescriptor>::InitData, usize),
+                });
+                def_fn_init.extend(quote! { #arena_ident, #ident, });
+                
+                let offset = &offset_vars[i];
+                def_write_slices.extend(quote! {
+                    let def_len = self.#ident.1;
+                    let field_ptr = ptr.add(#offset).cast::<<#ty as ::slice_struct::__private::InlineSlice>::Element>();
+                    if def_len > 0 {
+                        let def_val = &self.#ident.0;
+                        let stride = self.#arena_ident.instance_size();
+                        for j in 0..def_len {
+                            self.#arena_ident.write_instance_def(field_ptr.add(j * stride), def_val);
+                        }
+                    }
+                });
+            }
+        }
         
         let len_ident = format_ident!("{}_len", ident);
         def_len_vars.extend(quote! { let #len_ident = self.#ident.1; });
-        def_len_args.extend(quote! { #len_ident, });
-        
-        let offset = &offset_vars[i];
-        def_write_slices.extend(quote! {
-            let def_len = self.#ident.1;
-            let field_ptr = ptr.add(#offset).cast::<<#ty as ::slice_struct::__private::InlineSlice>::Element>();
-            if def_len > 0 {
-                let def_val = self.#ident.0;
-                for j in 0..def_len - 1 {
-                    ::core::ptr::write(field_ptr.add(j), ::core::clone::Clone::clone(&def_val));
-                }
-                ::core::ptr::write(field_ptr.add(def_len - 1), def_val);
+        match field {
+            crate::parse::SliceField::Flat { .. } => {
+                def_len_args.extend(quote! { #len_ident, });
             }
-        });
+            crate::parse::SliceField::Arena { .. } => {
+                let arena_ident = format_ident!("{}_arena", ident);
+                def_len_args.extend(quote! { #len_ident, &self.#arena_ident, });
+            }
+        }
     }
     
     let mut def_generics = input.generics.clone();
-    for (_, ty, _) in &input.slice_fields {
+    for field in &input.slice_fields {
+        let ty = field.ty();
         def_generics.make_where_clause().predicates.push(::syn::parse_quote!(<#ty as ::slice_struct::__private::InlineSlice>::Element: ::core::clone::Clone));
     }
     let (_, _, def_where_clause_with_clone) = def_generics.split_for_impl();

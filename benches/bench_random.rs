@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use slice_struct::slice_struct;
 use std::hint::black_box;
 
@@ -14,21 +14,23 @@ pub struct StandardPacket {
 #[slice_struct]
 pub struct SlicePacket {
     pub id: u32,
-    #[slice] pub payload: [u8],
-    #[slice] pub tags: [u32],
+    #[slice]
+    pub payload: [u8],
+    #[slice]
+    pub tags: [u32],
 }
 
 fn bench_random_access(c: &mut Criterion) {
     let mut group = c.benchmark_group("Random Access");
-    
+
     let standard = Box::new(StandardPacket {
         id: 42,
         payload: vec![1; 10000],
         tags: vec![1; 10000],
     });
-    
+
     let slice_p = SlicePacket::init_def(42, (1, 10000), (1, 10000)).in_box();
-    
+
     // Pseudo-random deterministic scatter using primes
     let indices: Vec<usize> = (0..1000).map(|i| (i * 997) % 10000).collect();
 

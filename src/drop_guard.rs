@@ -15,7 +15,11 @@ pub struct __DropGuard<T> {
 impl<T> __DropGuard<T> {
     #[inline]
     pub fn new(ptr: *mut T) -> Self {
-        Self { ptr, written: 0, _marker: PhantomData }
+        Self {
+            ptr,
+            written: 0,
+            _marker: PhantomData,
+        }
     }
 }
 

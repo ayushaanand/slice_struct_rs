@@ -1,6 +1,6 @@
+use crate::parse::SliceStructInput;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use crate::parse::SliceStructInput;
 
 pub fn generate(input: &SliceStructInput) -> (TokenStream, TokenStream) {
     let struct_name = &input.struct_name;
@@ -21,7 +21,9 @@ pub fn generate(input: &SliceStructInput) -> (TokenStream, TokenStream) {
         quote! { ::slice_struct::__private::AbsoluteMode }
     };
 
-    for (i, (ident, ty, _)) in input.slice_fields.iter().enumerate() {
+    for (i, field) in input.slice_fields.iter().enumerate() {
+        let ident = field.ident();
+        let ty = field.ty();
         let align_ident = format_ident!("__align_{}", i);
         let internal_ident = format_ident!("__{}", ident);
         let state_ident = format_ident!("__{}_state", ident);
@@ -49,13 +51,16 @@ pub fn generate(input: &SliceStructInput) -> (TokenStream, TokenStream) {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     let mut drop_slices = quote! {};
-    for (ident, _, _) in &input.slice_fields {
+    for field in &input.slice_fields {
+        let ident = field.ident();
+        let ty = field.ty();
         let internal_ident = format_ident!("__{}", ident);
+        let state_ident = format_ident!("__{}_state", ident);
         drop_slices.extend(quote! {
             unsafe {
                 let base_ptr = self as *mut _ as *mut u8;
                 let data = self.0.#internal_ident.as_non_null(base_ptr);
-                ::core::ptr::drop_in_place(data.as_ptr());
+                <#ty as ::slice_struct::__private::InlineSlice>::drop_slice(&self.0.#state_ident, data);
             }
         });
     }
@@ -88,7 +93,7 @@ pub fn generate(input: &SliceStructInput) -> (TokenStream, TokenStream) {
         #zerocopy_derives_outer
         #[repr(transparent)]
         #vis struct #struct_name #generics(#inner_struct_name #ty_generics);
-        
+
         impl #impl_generics ::core::ops::Drop for #struct_name #ty_generics #where_clause {
             fn drop(&mut self) {
                 #drop_slices

@@ -8,7 +8,7 @@ struct AlignedBuf<const N: usize>(pub [u8; N]);
 pub struct Packet {
     a: u32,
     #[slice]
-    payload: [u8]
+    payload: [u8],
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use slice_struct::slice_struct;
 use std::hint::black_box;
 
@@ -14,8 +14,10 @@ pub struct StandardPacket {
 #[slice_struct]
 pub struct SlicePacket {
     pub id: u32,
-    #[slice] pub payload: [u8],
-    #[slice] pub tags: [u32],
+    #[slice]
+    pub payload: [u8],
+    #[slice]
+    pub tags: [u32],
 }
 
 fn bench_allocation(c: &mut Criterion) {
@@ -34,12 +36,8 @@ fn bench_allocation(c: &mut Criterion) {
 
     group.bench_function("slice_struct (1 Allocation)", |b| {
         b.iter(|| {
-            let p = SlicePacket::init_def(
-                black_box(42),
-                (0, black_box(1024)),
-                (0, black_box(128)),
-            )
-            .in_box();
+            let p = SlicePacket::init_def(black_box(42), (0, black_box(1024)), (0, black_box(128)))
+                .in_box();
             black_box(p);
         })
     });
@@ -51,15 +49,17 @@ fn bench_iteration(c: &mut Criterion) {
     let mut group = c.benchmark_group("Iteration (Cache Locality)");
 
     let num_packets = 10_000;
-    
+
     // We MUST Box the standard packet so it perfectly mimics the heap layout
     // of a slice_struct which is !Unpin and lives behind a Box.
     let standard_packets: Vec<Box<StandardPacket>> = (0..num_packets)
-        .map(|i| Box::new(StandardPacket {
-            id: i,
-            payload: vec![1; 256],
-            tags: vec![1; 32],
-        }))
+        .map(|i| {
+            Box::new(StandardPacket {
+                id: i,
+                payload: vec![1; 256],
+                tags: vec![1; 32],
+            })
+        })
         .collect();
 
     group.bench_function("Standard Iteration", |b| {

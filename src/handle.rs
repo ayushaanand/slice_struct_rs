@@ -1,7 +1,7 @@
+use core::cell::UnsafeCell;
 use core::marker::PhantomData;
 use core::marker::PhantomPinned;
 use core::ptr::NonNull;
-use core::cell::UnsafeCell;
 
 #[doc(hidden)]
 #[repr(transparent)]
@@ -43,7 +43,10 @@ impl AddressingMode for AbsoluteMode {
     }
 }
 
-#[cfg_attr(feature = "zero_copy", derive(::zerocopy::FromBytes, ::zerocopy::KnownLayout, ::zerocopy::Immutable))]
+#[cfg_attr(
+    feature = "zero_copy",
+    derive(::zerocopy::FromBytes, ::zerocopy::KnownLayout, ::zerocopy::Immutable)
+)]
 pub struct RelativeMode;
 impl AddressingMode for RelativeMode {
     type Marker = ();
@@ -66,7 +69,10 @@ impl AddressingMode for RelativeMode {
     }
 }
 
-#[cfg_attr(feature = "zero_copy", derive(::zerocopy::FromBytes, ::zerocopy::KnownLayout, ::zerocopy::Immutable))]
+#[cfg_attr(
+    feature = "zero_copy",
+    derive(::zerocopy::FromBytes, ::zerocopy::KnownLayout, ::zerocopy::Immutable)
+)]
 pub struct SliceHandle<T, Mode: AddressingMode> {
     pub ptr_data: Mode::PointerData<T>,
     pub len: usize,
@@ -80,7 +86,11 @@ impl<T, Mode: AddressingMode> SliceHandle<T, Mode> {
     #[doc(hidden)]
     #[inline]
     pub fn __new_unchecked(ptr_data: Mode::PointerData<T>, len: usize) -> Self {
-        Self { ptr_data, len, _marker: PhantomData }
+        Self {
+            ptr_data,
+            len,
+            _marker: PhantomData,
+        }
     }
 
     #[inline(always)]
@@ -92,7 +102,7 @@ impl<T, Mode: AddressingMode> SliceHandle<T, Mode> {
     pub fn len(&self) -> usize {
         self.len
     }
-    
+
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len == 0
@@ -111,7 +121,10 @@ unsafe impl<'a, T: Sync> Sync for SliceBorrow<'a, T> {}
 impl<'a, T> SliceBorrow<'a, T> {
     #[inline(always)]
     pub fn new(ptr: NonNull<[T]>) -> Self {
-        Self { ptr, _marker: PhantomData }
+        Self {
+            ptr,
+            _marker: PhantomData,
+        }
     }
 }
 

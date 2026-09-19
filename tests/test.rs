@@ -4,8 +4,10 @@ use slice_struct::slice_struct;
 #[slice_struct]
 struct Str<T: Clone> {
     a: u32,
-    #[slice] b: [T],
-    #[slice] c: [u32],
+    #[slice]
+    b: [T],
+    #[slice]
+    c: [u32],
 }
 
 // ── init_iter ─────────────────────────────────────────────────────────
@@ -75,7 +77,8 @@ fn test_def_zero_len() {
 #[slice_struct]
 struct SStr {
     a: String,
-    #[slice] b: [String],
+    #[slice]
+    b: [String],
 }
 
 #[test]
@@ -103,7 +106,7 @@ fn test_no_slices_iter() {
     let mut s = NoSlices::init_iter(42, true).in_box();
     assert_eq!(*s.view().a, 42);
     assert_eq!(*s.view().b, true);
-    
+
     let v = s.as_mut().view_mut();
     *v.a = 99;
     assert_eq!(*s.view().a, 99);
@@ -118,14 +121,15 @@ fn test_no_slices_def() {
 
 #[slice_struct]
 struct OneSlice {
-    #[slice] pub data: [u8],
+    #[slice]
+    pub data: [u8],
 }
 
 #[test]
 fn test_only_one_slice_iter() {
     let mut s = OneSlice::init_iter([10, 20].into_iter()).in_box();
     assert_eq!(s.view().data, &[10, 20]);
-    
+
     let v = s.as_mut().view_mut();
     v.data[1] = 99;
     assert_eq!(s.view().data, &[10, 99]);
@@ -141,9 +145,12 @@ fn test_only_one_slice_def() {
 
 #[slice_struct]
 struct MixedEmpty {
-    #[slice] a: [u8],
-    #[slice] b: [u16],
-    #[slice] c: [u32],
+    #[slice]
+    a: [u8],
+    #[slice]
+    b: [u16],
+    #[slice]
+    c: [u32],
 }
 
 #[test]
@@ -153,11 +160,8 @@ fn test_mixed_empty_and_full() {
     assert_eq!(s.view().b, &[2, 2, 2, 2, 2]);
     assert_eq!(s.view().c, &[]);
 
-    let s2 = MixedEmpty::init_iter(
-        [1, 2].into_iter(),
-        [].into_iter(),
-        [3, 4, 5].into_iter()
-    ).in_box();
+    let s2 =
+        MixedEmpty::init_iter([1, 2].into_iter(), [].into_iter(), [3, 4, 5].into_iter()).in_box();
     assert_eq!(s2.view().a, &[1, 2]);
     assert_eq!(s2.view().b, &[]);
     assert_eq!(s2.view().c, &[3, 4, 5]);
@@ -165,7 +169,8 @@ fn test_mixed_empty_and_full() {
 
 #[slice_struct]
 struct ZstStruct {
-    #[slice] zst: [()],
+    #[slice]
+    zst: [()],
 }
 
 #[test]
@@ -181,15 +186,19 @@ struct Aligned64(u8);
 #[slice_struct]
 struct HighlyAligned {
     a: u8,
-    #[slice] data: [Aligned64],
+    #[slice]
+    data: [Aligned64],
 }
 
 #[test]
 fn test_highly_aligned() {
     let s = HighlyAligned::init_def(42, (Aligned64(99), 3)).in_box();
     assert_eq!(*s.view().a, 42);
-    assert_eq!(s.view().data, &[Aligned64(99), Aligned64(99), Aligned64(99)]);
-    
+    assert_eq!(
+        s.view().data,
+        &[Aligned64(99), Aligned64(99), Aligned64(99)]
+    );
+
     // Check alignment
     let data_ptr = s.view().data.as_ptr() as usize;
     assert_eq!(data_ptr % 64, 0, "Slice data must be 64-byte aligned");
@@ -209,7 +218,6 @@ fn test_send_sync() {
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-
 static DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone)]
@@ -222,7 +230,8 @@ impl Drop for DropCounter {
 
 #[slice_struct]
 struct DropTest {
-    #[slice] items: [DropCounter],
+    #[slice]
+    items: [DropCounter],
 }
 
 #[test]
@@ -262,13 +271,17 @@ impl ExactSizeIterator for BadIter {
 
 #[slice_struct]
 struct IterTest {
-    #[slice] data: [u32],
+    #[slice]
+    data: [u32],
 }
 
 #[test]
 fn test_lying_iterator_long() {
     // Claims 5, but yields 10. Macro should only consume 5 and stop.
-    let iter = BadIter { yields: 10, claims: 5 };
+    let iter = BadIter {
+        yields: 10,
+        claims: 5,
+    };
     let s = IterTest::init_iter(iter).in_box();
     assert_eq!(s.view().data.len(), 5);
 }
@@ -277,7 +290,10 @@ fn test_lying_iterator_long() {
 #[should_panic(expected = "yielded fewer elements")]
 fn test_lying_iterator_short() {
     // Claims 10, but yields 5. Macro MUST panic to prevent uninitialized memory UB.
-    let iter = BadIter { yields: 5, claims: 10 };
+    let iter = BadIter {
+        yields: 5,
+        claims: 10,
+    };
     let _s = IterTest::init_iter(iter).in_box();
 }
 
@@ -286,7 +302,8 @@ fn test_lying_iterator_short() {
 #[slice_struct]
 struct WithLifetimes<'a, T: Clone> {
     prefix: &'a str,
-    #[slice] data: [T],
+    #[slice]
+    data: [T],
 }
 
 #[test]
@@ -302,10 +319,14 @@ fn test_lifetimes_and_generics() {
 #[slice_struct]
 struct KitchenSink {
     a: u8,
-    #[slice] b: [u64],
-    #[slice] c: [u8],
-    #[slice] d: [()],
-    #[slice] e: [u32],
+    #[slice]
+    b: [u64],
+    #[slice]
+    c: [u8],
+    #[slice]
+    d: [()],
+    #[slice]
+    e: [u32],
 }
 
 #[test]
@@ -314,14 +335,8 @@ fn test_kitchen_sink_layout() {
     // u8 -> u64 requires 7 bytes of padding.
     // u8 -> () requires 0 padding.
     // () -> u32 requires padding to reach 4-byte alignment.
-    let s = KitchenSink::init_def(
-        1,
-        (2_u64, 3),
-        (3_u8, 5),
-        ((), 10),
-        (5_u32, 2)
-    ).in_box();
-    
+    let s = KitchenSink::init_def(1, (2_u64, 3), (3_u8, 5), ((), 10), (5_u32, 2)).in_box();
+
     let v = s.view();
     assert_eq!(*v.a, 1);
     assert_eq!(v.b, &[2, 2, 2]);
@@ -376,7 +391,8 @@ fn test_slice_independence() {
 #[slice_struct]
 struct BigBuf {
     tag: u64,
-    #[slice] data: [u8],
+    #[slice]
+    data: [u8],
 }
 
 #[test]
@@ -386,9 +402,9 @@ fn test_large_allocation() {
     let s = BigBuf::init_iter(0xdeadbeef, (0..N).map(|i| (i % 256) as u8)).in_box();
 
     assert_eq!(s.view().data.len(), N);
-    assert_eq!(s.view().data[0],     0);
+    assert_eq!(s.view().data[0], 0);
     assert_eq!(s.view().data[255], 255);
-    assert_eq!(s.view().data[256],   0); // wraps back around
+    assert_eq!(s.view().data[256], 0); // wraps back around
     assert_eq!(s.view().data[N - 1], ((N - 1) % 256) as u8);
 }
 
@@ -398,7 +414,8 @@ use std::sync::Arc;
 
 #[slice_struct]
 struct ArcSlice {
-    #[slice] items: [Arc<u32>],
+    #[slice]
+    items: [Arc<u32>],
 }
 
 #[test]
@@ -407,9 +424,8 @@ fn test_arc_element_drop() {
     assert_eq!(Arc::strong_count(&shared), 1);
 
     {
-        let s = ArcSlice::init_iter(
-            [shared.clone(), shared.clone(), shared.clone()].into_iter()
-        ).in_box();
+        let s = ArcSlice::init_iter([shared.clone(), shared.clone(), shared.clone()].into_iter())
+            .in_box();
         assert_eq!(Arc::strong_count(&shared), 4); // 1 original + 3 in slice
         assert_eq!(*s.view().items[1], 42);
     }
@@ -435,12 +451,15 @@ impl Iterator for PanicsAt {
     }
 }
 impl ExactSizeIterator for PanicsAt {
-    fn len(&self) -> usize { self.panics_at + 1 }
+    fn len(&self) -> usize {
+        self.panics_at + 1
+    }
 }
 
 #[slice_struct]
 struct StringSlice {
-    #[slice] words: [String],
+    #[slice]
+    words: [String],
 }
 
 #[test]
@@ -451,26 +470,44 @@ fn test_panic_mid_iter_no_leak() {
     // when the stack unwinds. We use a wrapper to count.
     #[derive(Clone)]
     struct Tracked(String);
-    impl Drop for Tracked { fn drop(&mut self) { DROP_COUNT.fetch_add(1, Ordering::SeqCst); } }
+    impl Drop for Tracked {
+        fn drop(&mut self) {
+            DROP_COUNT.fetch_add(1, Ordering::SeqCst);
+        }
+    }
 
     #[slice_struct]
-    struct TrackedSlice { #[slice] items: [Tracked] }
+    struct TrackedSlice {
+        #[slice]
+        items: [Tracked],
+    }
 
-    struct TrackedPanicsAt { current: usize, panics_at: usize }
+    struct TrackedPanicsAt {
+        current: usize,
+        panics_at: usize,
+    }
     impl Iterator for TrackedPanicsAt {
         type Item = Tracked;
         fn next(&mut self) -> Option<Tracked> {
-            if self.current == self.panics_at { panic!("deliberate"); }
+            if self.current == self.panics_at {
+                panic!("deliberate");
+            }
             self.current += 1;
             Some(Tracked(format!("item")))
         }
     }
     impl ExactSizeIterator for TrackedPanicsAt {
-        fn len(&self) -> usize { self.panics_at + 1 }
+        fn len(&self) -> usize {
+            self.panics_at + 1
+        }
     }
 
     let result = std::panic::catch_unwind(|| {
-        let _s = TrackedSlice::init_iter(TrackedPanicsAt { current: 0, panics_at: 3 }).in_box();
+        let _s = TrackedSlice::init_iter(TrackedPanicsAt {
+            current: 0,
+            panics_at: 3,
+        })
+        .in_box();
     });
 
     assert!(result.is_err(), "should have panicked");
@@ -480,14 +517,20 @@ fn test_panic_mid_iter_no_leak() {
 
 // ── Pointer alignment for all slice fields ────────────────────────────────
 
-#[repr(align(16))] #[derive(Clone)] struct A16(u8);
-#[repr(align(32))] #[derive(Clone)] struct A32(u8);
+#[repr(align(16))]
+#[derive(Clone)]
+struct A16(u8);
+#[repr(align(32))]
+#[derive(Clone)]
+struct A32(u8);
 
 #[slice_struct]
 struct TwoAligned {
     tag: u8,
-    #[slice] a: [A16],
-    #[slice] b: [A32],
+    #[slice]
+    a: [A16],
+    #[slice]
+    b: [A32],
 }
 
 #[test]
@@ -507,13 +550,15 @@ fn test_iter_mut_all_elements() {
     {
         let v = s.as_mut().view_mut();
         v.b.iter_mut().enumerate().for_each(|(i, x)| *x = i as i32);
-        v.c.iter_mut().enumerate().for_each(|(i, x)| *x = (i * 2) as u32);
+        v.c.iter_mut()
+            .enumerate()
+            .for_each(|(i, x)| *x = (i * 2) as u32);
     }
 
     let v = s.view();
-    assert_eq!(v.b[0],  0);
+    assert_eq!(v.b[0], 0);
     assert_eq!(v.b[99], 99);
-    assert_eq!(v.c[0],  0);
+    assert_eq!(v.c[0], 0);
     assert_eq!(v.c[99], 198);
 }
 
@@ -549,8 +594,12 @@ fn test_all_sized_fields_read_write() {
 
 #[test]
 fn test_sliceborrow_coercions() {
-    fn takes_slice(s: &[i32]) -> i32 { s.iter().sum() }
-    fn takes_mut_slice(s: &mut [i32]) { s.iter_mut().for_each(|x| *x *= 2); }
+    fn takes_slice(s: &[i32]) -> i32 {
+        s.iter().sum()
+    }
+    fn takes_mut_slice(s: &mut [i32]) {
+        s.iter_mut().for_each(|x| *x *= 2);
+    }
 
     let mut s = Str::<i32>::init_iter(0, [1, 2, 3, 4].into_iter(), [0].into_iter()).in_box();
     {
@@ -568,7 +617,8 @@ fn test_sliceborrow_coercions() {
 #[slice_struct]
 struct WrapTest {
     pub counter: u32,
-    #[slice] pub data: [u8],
+    #[slice]
+    pub data: [u8],
 }
 
 #[test]
@@ -577,9 +627,9 @@ fn test_in_arc() {
     assert_eq!(*arc.view().counter, 10);
     assert_eq!(arc.view().data, &[5, 5, 5, 5]);
     let clone1 = arc.clone();
-    
+
     assert_eq!(clone1.view().data.len(), 4);
-    
+
     let raw_arc = unsafe { std::pin::Pin::into_inner_unchecked(arc) };
     assert_eq!(Arc::strong_count(&raw_arc), 2);
 }
@@ -588,9 +638,9 @@ fn test_in_arc() {
 fn test_in_rc() {
     let rc = WrapTest::init_def(99, (1, 2)).in_rc();
     let clone1 = rc.clone();
-    
+
     assert_eq!(clone1.view().data, &[1, 1]);
-    
+
     let raw_rc = unsafe { std::pin::Pin::into_inner_unchecked(rc) };
     assert_eq!(std::rc::Rc::strong_count(&raw_rc), 2);
 }
@@ -606,14 +656,20 @@ fn test_arc_mutex_concurrency() {
             let mut guard = s_clone.lock();
             let view = guard.as_mut().view_mut();
             *view.counter += 1;
-            for i in 0..100 { view.data[i] += 1; }
+            for i in 0..100 {
+                view.data[i] += 1;
+            }
         }));
     }
-    for h in handles { h.join().unwrap(); }
+    for h in handles {
+        h.join().unwrap();
+    }
     let guard = s.lock();
     let view = guard.view();
     assert_eq!(*view.counter, 10);
-    for i in 0..100 { assert_eq!(view.data[i], 10); }
+    for i in 0..100 {
+        assert_eq!(view.data[i], 10);
+    }
 }
 
 #[test]
@@ -630,8 +686,8 @@ fn test_rc_refcell() {
     assert_eq!(view.view().data[0], 99);
 }
 
-use std::sync::Mutex;
 use std::cell::RefCell;
+use std::sync::Mutex;
 
 #[slice_struct]
 struct Advanced {
@@ -649,14 +705,15 @@ fn test_advanced() {
         "hello".bytes(),
         [1, 2, 3].into_iter(),
         [100, 200].into_iter(),
-    ).in_box();
+    )
+    .in_box();
     assert_eq!(a.view().string, "hello");
     assert_eq!(*a.view().locked, [1, 2, 3]);
     assert_eq!(*a.view().cell, [100, 200]);
-    
+
     a.view().locked[0] = 99;
     a.view().cell[1] = 999;
-    
+
     assert_eq!(*a.view().locked, [99, 2, 3]);
     assert_eq!(*a.view().cell, [100, 999]);
 }

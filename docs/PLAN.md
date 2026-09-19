@@ -6,6 +6,7 @@ This document details the major architectural features planned for future releas
 
 ## ~~Feature 1: Universal Inline Slice Projection~~ (Completed in v0.2.0)
 ## ~~Feature 2: The `SliceBuilder` (In-Place Initialization)~~ (Completed in v0.2.0)
+
 ---
 ## Feature 3: Inline Dynamic Traits (`#[dyn]`)
 

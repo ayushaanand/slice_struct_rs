@@ -1,22 +1,32 @@
+pub mod arena_type;
+pub mod init;
+pub mod layout;
 pub mod structs;
 pub mod view;
-pub mod layout;
-pub mod init;
 
+use crate::parse::SliceStructInput;
 use proc_macro2::TokenStream;
 use quote::quote;
-use crate::parse::SliceStructInput;
 
 pub fn generate(input: &SliceStructInput) -> TokenStream {
     let (private_structs, public_structs) = structs::generate(input);
     let view = view::generate(input);
     let layout = layout::generate(input);
-    let init = init::generate(input);
+    let init = if input.is_arena {
+        quote::quote! {}
+    } else {
+        init::generate(input)
+    };
+    let arena_codegen = if input.is_arena {
+        arena_type::generate(input)
+    } else {
+        quote::quote! {}
+    };
 
     let struct_name = &input.struct_name;
     let inner_struct_name = quote::format_ident!("{}__Inner", struct_name);
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-    
+
     let zerocopy_methods = if input.zerocopy {
         quote! {
             #[cfg(feature = "zero_copy")]
@@ -42,14 +52,29 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         quote! {}
     };
 
-    quote! {
-        #public_structs
-        #zerocopy_methods
-        #view
-        const _: () = {
-            #private_structs
+    if input.is_arena {
+        quote! {
+            #public_structs
+            #zerocopy_methods
+            #view
+            #arena_codegen
             #layout
-            #init
-        };
+            const _: () = {
+                #private_structs
+                #init
+            };
+        }
+    } else {
+        quote! {
+            #public_structs
+            #zerocopy_methods
+            #view
+            #arena_codegen
+            const _: () = {
+                #private_structs
+                #layout
+                #init
+            };
+        }
     }
 }

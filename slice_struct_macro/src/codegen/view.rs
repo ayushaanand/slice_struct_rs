@@ -1,6 +1,6 @@
+use crate::parse::SliceStructInput;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use crate::parse::SliceStructInput;
 
 pub fn generate(input: &SliceStructInput) -> TokenStream {
     let struct_name = &input.struct_name;
@@ -9,17 +9,21 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
 
     let mut view_generics = input.generics.clone();
     view_generics.params.insert(0, ::syn::parse_quote!('__a));
-    for (_, ty, _) in &input.slice_fields {
-        view_generics.make_where_clause().predicates.push(::syn::parse_quote!(#ty: '__a));
+    for field in &input.slice_fields {
+        let ty = field.ty();
+        view_generics
+            .make_where_clause()
+            .predicates
+            .push(::syn::parse_quote!(#ty: '__a));
     }
     let (_view_impl_generics, view_ty_generics, view_where_clause) = view_generics.split_for_impl();
-    
+
     let view_ident = format_ident!("{}View", struct_name);
     let view_mut_ident = format_ident!("{}ViewMut", struct_name);
 
     let mut view_fields = quote! {};
     let mut view_init = quote! {};
-    
+
     let mut view_mut_fields = quote! {};
     let mut view_mut_init = quote! {};
 
@@ -28,26 +32,34 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let internal_ident = format_ident!("__{}", ident);
         let ty = &field.ty;
         let fvis = &field.vis;
-        
+
         view_fields.extend(quote! { #fvis #ident: &'__a #ty, });
         view_init.extend(quote! { #ident: &this.0.#internal_ident, });
-        
+
         view_mut_fields.extend(quote! { #fvis #ident: &'__a mut #ty, });
         view_mut_init.extend(quote! { #ident: &mut this.0.#internal_ident, });
     }
 
-    for (ident, ty, fvis) in &input.slice_fields {
+    for field in &input.slice_fields {
+        let ident = field.ident();
+        let ty = field.ty();
+        let fvis = match field {
+            crate::parse::SliceField::Flat { vis, .. }
+            | crate::parse::SliceField::Arena { vis, .. } => vis,
+        };
         let internal_ident = format_ident!("__{}", ident);
         let state_ident = format_ident!("__{}_state", ident);
-        
-        view_fields.extend(quote! { #fvis #ident: <#ty as ::slice_struct::__private::InlineSlice>::View<'__a>, });
-        view_init.extend(quote! { 
+
+        view_fields.extend(
+            quote! { #fvis #ident: <#ty as ::slice_struct::__private::InlineSlice>::View<'__a>, },
+        );
+        view_init.extend(quote! {
             #ident: <#ty as ::slice_struct::__private::InlineSlice>::project(
                 &this.0.#state_ident,
                 this.0.#internal_ident.as_non_null(base_ptr)
             ),
         });
-        
+
         view_mut_fields.extend(quote! { #fvis #ident: <#ty as ::slice_struct::__private::InlineSlice>::ViewMut<'__a>, });
         view_mut_init.extend(quote! {
             #ident: <#ty as ::slice_struct::__private::InlineSlice>::project_mut(

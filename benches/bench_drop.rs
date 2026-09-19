@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion, BatchSize};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use slice_struct::slice_struct;
 
 #[derive(Clone)]
@@ -11,8 +11,10 @@ pub struct StandardPacket {
 #[slice_struct]
 pub struct SlicePacket {
     pub id: u32,
-    #[slice] pub payload: [u8],
-    #[slice] pub tags: [u32],
+    #[slice]
+    pub payload: [u8],
+    #[slice]
+    pub tags: [u32],
 }
 
 fn bench_drop(c: &mut Criterion) {
@@ -37,9 +39,7 @@ fn bench_drop(c: &mut Criterion) {
 
     group.bench_function("slice_struct (1 Drop)", |b| {
         b.iter_batched(
-            || {
-                SlicePacket::init_def(42, (0, 1024), (0, 128)).in_box()
-            },
+            || SlicePacket::init_def(42, (0, 1024), (0, 128)).in_box(),
             |p| {
                 // Drop happens here
                 drop(std::hint::black_box(p));
