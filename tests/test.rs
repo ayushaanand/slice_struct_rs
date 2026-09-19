@@ -380,6 +380,7 @@ struct BigBuf {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_large_allocation() {
     const N: usize = 1 << 20; // 1 MiB of u8
     let s = BigBuf::init_iter(0xdeadbeef, (0..N).map(|i| (i % 256) as u8)).in_box();

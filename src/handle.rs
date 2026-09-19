@@ -1,6 +1,14 @@
 use core::marker::PhantomData;
 use core::marker::PhantomPinned;
 use core::ptr::NonNull;
+use core::cell::UnsafeCell;
+
+#[doc(hidden)]
+#[repr(transparent)]
+pub struct __SyncUnsafeCell<T: ?Sized>(pub UnsafeCell<T>);
+unsafe impl<T: ?Sized + Sync> Sync for __SyncUnsafeCell<T> {}
+unsafe impl<T: ?Sized + Send> Send for __SyncUnsafeCell<T> {}
+impl<T: ?Sized + core::panic::RefUnwindSafe> core::panic::RefUnwindSafe for __SyncUnsafeCell<T> {}
 
 pub trait AddressingMode {
     type Marker;
@@ -35,6 +43,7 @@ impl AddressingMode for AbsoluteMode {
     }
 }
 
+#[cfg_attr(feature = "zero_copy", derive(::zerocopy::FromBytes, ::zerocopy::KnownLayout, ::zerocopy::Immutable))]
 pub struct RelativeMode;
 impl AddressingMode for RelativeMode {
     type Marker = ();
@@ -57,6 +66,7 @@ impl AddressingMode for RelativeMode {
     }
 }
 
+#[cfg_attr(feature = "zero_copy", derive(::zerocopy::FromBytes, ::zerocopy::KnownLayout, ::zerocopy::Immutable))]
 pub struct SliceHandle<T, Mode: AddressingMode> {
     pub ptr_data: Mode::PointerData<T>,
     pub len: usize,

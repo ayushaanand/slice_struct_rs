@@ -6,17 +6,12 @@ pub fn generate(input: &SliceStructInput) -> (TokenStream, TokenStream) {
     let struct_name = &input.struct_name;
     let vis = &input.vis;
 
-    
-    let sized_prefix_ident = format_ident!("{}_SizedPrefix", struct_name);
-
-    let mut prefix_fields = quote! {};
     let mut actual_fields = quote! {};
 
     for field in &input.sized_fields {
         let ident = field.ident.as_ref().unwrap();
         let internal_ident = format_ident!("__{}", ident);
         let ty = &field.ty;
-        prefix_fields.extend(quote! { #[doc(hidden)] #internal_ident: #ty, });
         actual_fields.extend(quote! { #[doc(hidden)] #internal_ident: #ty, });
     }
 
@@ -31,26 +26,23 @@ pub fn generate(input: &SliceStructInput) -> (TokenStream, TokenStream) {
         let internal_ident = format_ident!("__{}", ident);
         let state_ident = format_ident!("__{}_state", ident);
 
-        prefix_fields.extend(quote! {
-            #[doc(hidden)] #state_ident: <#ty as ::slice_struct::__private::InlineSlice>::State,
-            #[doc(hidden)] #align_ident: [<#ty as ::slice_struct::__private::InlineSlice>::Element; 0],
-            #[doc(hidden)] #internal_ident: ::slice_struct::__private::SliceHandle<<#ty as ::slice_struct::__private::InlineSlice>::Element, #mode>,
-        });
         actual_fields.extend(quote! {
             #[doc(hidden)] #state_ident: <#ty as ::slice_struct::__private::InlineSlice>::State,
             #[doc(hidden)] #align_ident: [<#ty as ::slice_struct::__private::InlineSlice>::Element; 0],
             #[doc(hidden)] #internal_ident: ::slice_struct::__private::SliceHandle<<#ty as ::slice_struct::__private::InlineSlice>::Element, #mode>,
         });
     }
-    
-    prefix_fields.extend(quote! {
-        #[doc(hidden)] __pin: <#mode as ::slice_struct::__private::AddressingMode>::Marker,
-    });
+
+    let data_tail_type = if input.zerocopy {
+        quote! { ::core::mem::MaybeUninit<u8> }
+    } else {
+        quote! { ::slice_struct::__private::__SyncUnsafeCell<::core::mem::MaybeUninit<u8>> }
+    };
 
     let data_field = quote! {
         #[doc(hidden)] __pin: <#mode as ::slice_struct::__private::AddressingMode>::Marker,
-        #[doc(hidden)]
-        __data_tail: [::core::mem::MaybeUninit<u8>]
+        #[doc(hidden)] __tail_start: [u8; 0],
+        #[doc(hidden)] __data_tail: [#data_tail_type]
     };
 
     let generics = &input.generics;
@@ -68,16 +60,24 @@ pub fn generate(input: &SliceStructInput) -> (TokenStream, TokenStream) {
         });
     }
 
-    let private_structs = quote! {
-        #[repr(C)]
-        #vis struct #sized_prefix_ident #generics {
-            #prefix_fields
-        }
-    };
+    let private_structs = quote! {};
 
     let inner_struct_name = format_ident!("{}__Inner", struct_name);
 
+    let zerocopy_derives_inner = if input.zerocopy {
+        quote! { #[cfg_attr(feature = "zero_copy", derive(::slice_struct::__private::zerocopy::FromBytes, ::slice_struct::__private::zerocopy::KnownLayout, ::slice_struct::__private::zerocopy::Immutable))] }
+    } else {
+        quote! {}
+    };
+
+    let zerocopy_derives_outer = if input.zerocopy {
+        quote! { #[derive(::slice_struct::__private::zerocopy::FromBytes, ::slice_struct::__private::zerocopy::Immutable)] }
+    } else {
+        quote! {}
+    };
+
     let public_structs = quote! {
+        #zerocopy_derives_inner
         #[repr(C)]
         #[doc(hidden)]
         #vis struct #inner_struct_name #generics {
@@ -85,6 +85,7 @@ pub fn generate(input: &SliceStructInput) -> (TokenStream, TokenStream) {
             #data_field
         }
 
+        #zerocopy_derives_outer
         #[repr(transparent)]
         #vis struct #struct_name #generics(#inner_struct_name #ty_generics);
         

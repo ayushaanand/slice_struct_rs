@@ -57,6 +57,17 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         });
     }
 
+    let unpin_methods = if input.unpin {
+        quote! {
+            #[doc = "Returns a struct containing mutable references to all fields (convenience method for `unpin` structs)."]
+            #vis fn view_mut_unpin<'__a>(&'__a mut self) -> #view_mut_ident #view_ty_generics where Self: ::core::marker::Unpin {
+                ::slice_struct::AsViewMut::as_view_mut(::core::pin::Pin::new(self))
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     quote! {
         #[doc = "An immutable view into the fields of the struct, providing `&T` for normal fields and `&[T]` for slice fields."]
         #vis struct #view_ident #view_generics #view_where_clause {
@@ -104,6 +115,8 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
             #vis fn view_mut<'__a>(self: ::core::pin::Pin<&'__a mut Self>) -> #view_mut_ident #view_ty_generics {
                 ::slice_struct::AsViewMut::as_view_mut(self)
             }
+
+            #unpin_methods
         }
     }
 }

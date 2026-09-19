@@ -13,10 +13,13 @@ mod codegen;
 /// variable-length slices packed into a single heap allocation.
 #[proc_macro_attribute]
 pub fn slice_struct(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let unpin = attr.to_string().contains("unpin");
+    let attr_str = attr.to_string();
+    let zerocopy = attr_str.contains("zerocopy");
+    let unpin = attr_str.contains("unpin") || zerocopy;
     let input = parse_macro_input!(item as syn::ItemStruct);
     let mut parsed = parse::parse_slice_struct(input);
     parsed.unpin = unpin;
+    parsed.zerocopy = zerocopy;
     let expanded = codegen::generate(&parsed);
     expanded.into()
 }

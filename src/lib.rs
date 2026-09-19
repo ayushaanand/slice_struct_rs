@@ -148,10 +148,13 @@ mod wrappers;
 #[doc(hidden)]
 pub mod __private {
     pub use crate::drop_guard::__DropGuard;
-    pub use crate::handle::{AddressingMode, AbsoluteMode, RelativeMode, SliceHandle};
+    pub use crate::handle::{AddressingMode, AbsoluteMode, RelativeMode, SliceHandle, __SyncUnsafeCell};
     pub use crate::inline::InlineSlice;
     pub use crate::init::{OwnedDst, SliceInit};
     pub use crate::wrappers::{WithMutex, WithRefCell};
+    
+    #[cfg(feature = "zero_copy")]
+    pub use ::zerocopy;
 }
 
 pub use handle::SliceBorrow;

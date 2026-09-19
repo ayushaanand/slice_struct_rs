@@ -3,7 +3,7 @@ members = [".", "slice_struct_macro"]
 
 [package]
 name = "slice_struct"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
 description = "A macro for structs with multiple inline, variable-length slices packed into a single heap allocation"
 license = "MIT OR Apache-2.0"
@@ -12,7 +12,8 @@ keywords = ["slice", "allocation", "macro", "dst", "memory"]
 categories = ["memory-management", "rust-patterns"]
 
 [dependencies]
-slice_struct_macro = { version = "0.3.1", path = "slice_struct_macro" }
+slice_struct_macro = { version = "0.4.0", path = "slice_struct_macro" }
+zerocopy = { version = "0.8.57", optional = true, features = ["derive"] }
 
 [dev-dependencies]
 cargo-rdme = "2.2.2"
@@ -30,3 +31,7 @@ harness = false
 [[bench]]
 name = "bench_random"
 harness = false
+
+[features]
+zerocopy = ["dep:zerocopy"]
+zero_copy = ["zerocopy"]

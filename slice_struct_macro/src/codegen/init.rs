@@ -6,7 +6,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     let struct_name = &input.struct_name;
     let vis = &input.vis;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-    let sized_prefix_ident = format_ident!("{}_SizedPrefix", struct_name);
+    let inner_struct_name = format_ident!("{}__Inner", struct_name);
     
     let init_iter_ident = format_ident!("__{}InitIter", struct_name);
     let init_def_ident = format_ident!("__{}InitDef", struct_name);
@@ -18,17 +18,32 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         quote! { ::slice_struct::__private::AbsoluteMode }
     };
     
-    // Shared prefix init logic
-    let mut prefix_init = quote! {};
+    let mut write_stmts = quote! {};
     for field in &input.sized_fields {
         let ident = field.ident.as_ref().unwrap();
         let internal_ident = format_ident!("__{}", ident);
-        prefix_init.extend(quote! { #internal_ident: self.#ident, });
+        write_stmts.extend(quote! {
+            ::core::ptr::write(::core::ptr::addr_of_mut!((*fat_ptr).0.#internal_ident), self.#ident);
+        });
     }
-    for (i, _) in input.slice_fields.iter().enumerate() {
+    for (i, (ident, ty, _)) in input.slice_fields.iter().enumerate() {
         let align_ident = format_ident!("__align_{}", i);
-        prefix_init.extend(quote! { #align_ident: [], });
+        let internal_ident = format_ident!("__{}", ident);
+        let state_ident = format_ident!("__{}_state", ident);
+        let len_ident = format_ident!("{}_len", ident);
+        write_stmts.extend(quote! {
+            ::core::ptr::write(::core::ptr::addr_of_mut!((*fat_ptr).0.#align_ident), []);
+            ::core::ptr::write(::core::ptr::addr_of_mut!((*fat_ptr).0.#state_ident), <#ty as ::slice_struct::__private::InlineSlice>::init_state());
+            ::core::ptr::write(::core::ptr::addr_of_mut!((*fat_ptr).0.#internal_ident), ::slice_struct::__private::SliceHandle::__new_unchecked(
+                <#mode as ::slice_struct::__private::AddressingMode>::dummy::<<#ty as ::slice_struct::__private::InlineSlice>::Element>(),
+                #len_ident
+            ));
+        });
     }
+    write_stmts.extend(quote! {
+        ::core::ptr::write(::core::ptr::addr_of_mut!((*fat_ptr).0.__pin), <#mode as ::slice_struct::__private::AddressingMode>::MARKER_INIT);
+        ::core::ptr::write(::core::ptr::addr_of_mut!((*fat_ptr).0.__tail_start), []);
+    });
     
     let mut fixup_len_args = quote! {};
     for (ident, _, _) in &input.slice_fields {
@@ -59,7 +74,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         }
         
         fn make_fat_ptr(&self, base: *mut u8) -> *mut #struct_name #ty_generics {
-            let data_len = self.layout().size() - ::core::mem::size_of::<#sized_prefix_ident #ty_generics>();
+            let data_len = self.layout().size() - ::core::mem::offset_of!(#inner_struct_name #ty_generics, __tail_start);
             ::core::ptr::slice_from_raw_parts_mut(base.cast::<()>(), data_len) as *mut _
         }
     };
@@ -112,22 +127,6 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     }
     
     let (iter_impl_generics, iter_ty_generics, _) = iter_generics.split_for_impl();
-    
-    let mut prefix_init_iter = prefix_init.clone();
-    for (ident, ty, _) in &input.slice_fields {
-        let internal_ident = format_ident!("__{}", ident);
-        let state_ident = format_ident!("__{}_state", ident);
-        let len_ident = format_ident!("{}_len", ident);
-        prefix_init_iter.extend(quote! {
-            #state_ident: <#ty as ::slice_struct::__private::InlineSlice>::init_state(),
-            #internal_ident: ::slice_struct::__private::SliceHandle {
-                ptr_data: <#mode as ::slice_struct::__private::AddressingMode>::dummy::<<#ty as ::slice_struct::__private::InlineSlice>::Element>(),
-                len: #len_ident,
-                _marker: ::core::marker::PhantomData,
-            },
-        });
-    }
-    prefix_init_iter.extend(quote! { __pin: <#mode as ::slice_struct::__private::AddressingMode>::MARKER_INIT, });
 
     let iter_def = quote! {
         #[doc(hidden)]
@@ -151,8 +150,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
                 let (layout, #(#offset_vars),*) = #layout_helper_ident #turbofish::calculate_layout(#iter_len_args);
                 let fat_ptr = self.make_fat_ptr(ptr);
                 
-                let sized_ptr = ptr.cast::<#sized_prefix_ident #ty_generics>();
-                ::core::ptr::write(sized_ptr, #sized_prefix_ident { #prefix_init_iter });
+                #write_stmts
                 
                 #iter_write_slices
                 
@@ -206,22 +204,6 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         });
     }
     
-    let mut prefix_init_def = prefix_init.clone();
-    for (ident, ty, _) in &input.slice_fields {
-        let internal_ident = format_ident!("__{}", ident);
-        let state_ident = format_ident!("__{}_state", ident);
-        let len_ident = format_ident!("{}_len", ident);
-        prefix_init_def.extend(quote! {
-            #state_ident: <#ty as ::slice_struct::__private::InlineSlice>::init_state(),
-            #internal_ident: ::slice_struct::__private::SliceHandle {
-                ptr_data: <#mode as ::slice_struct::__private::AddressingMode>::dummy::<<#ty as ::slice_struct::__private::InlineSlice>::Element>(),
-                len: #len_ident,
-                _marker: ::core::marker::PhantomData,
-            },
-        });
-    }
-    prefix_init_def.extend(quote! { __pin: <#mode as ::slice_struct::__private::AddressingMode>::MARKER_INIT, });
-    
     let mut def_generics = input.generics.clone();
     for (_, ty, _) in &input.slice_fields {
         def_generics.make_where_clause().predicates.push(::syn::parse_quote!(<#ty as ::slice_struct::__private::InlineSlice>::Element: ::core::clone::Clone));
@@ -250,8 +232,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
                 let (layout, #(#offset_vars),*) = #layout_helper_ident #turbofish::calculate_layout(#def_len_args);
                 let fat_ptr = self.make_fat_ptr(ptr);
                 
-                let sized_ptr = ptr.cast::<#sized_prefix_ident #ty_generics>();
-                ::core::ptr::write(sized_ptr, #sized_prefix_ident { #prefix_init_def });
+                #write_stmts
                 
                 #def_write_slices
                 
