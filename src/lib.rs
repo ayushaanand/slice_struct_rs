@@ -139,6 +139,7 @@ extern crate self as slice_struct;
 
 pub use slice_struct_macro::slice_struct;
 
+#[cfg(feature = "arena")]
 mod arena;
 mod drop_guard;
 mod handle;
@@ -148,6 +149,7 @@ mod wrappers;
 
 #[doc(hidden)]
 pub mod __private {
+#[cfg(feature = "arena")]
     pub use crate::arena::{ArenaDescriptor, ArenaElement};
     pub use crate::drop_guard::__DropGuard;
     pub use crate::handle::{
@@ -157,10 +159,11 @@ pub mod __private {
     pub use crate::inline::InlineSlice;
     pub use crate::wrappers::{WithMutex, WithRefCell};
 
-    #[cfg(feature = "zero_copy")]
+    #[cfg(feature = "zerocopy")]
     pub use ::zerocopy;
 }
 
+#[cfg(feature = "arena")]
 pub use arena::{ArenaDescriptor, ArenaElement, ArenaSlice, ArenaSliceView, ArenaSliceViewMut};
 pub use handle::SliceBorrow;
 pub use init::SliceBuilder;

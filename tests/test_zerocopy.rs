@@ -1,4 +1,4 @@
-#![cfg(feature = "zero_copy")]
+#![cfg(feature = "zerocopy")]
 use slice_struct::slice_struct;
 
 #[repr(C, align(8))]

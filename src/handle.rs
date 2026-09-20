@@ -44,7 +44,7 @@ impl AddressingMode for AbsoluteMode {
 }
 
 #[cfg_attr(
-    feature = "zero_copy",
+    feature = "zerocopy",
     derive(::zerocopy::FromBytes, ::zerocopy::KnownLayout, ::zerocopy::Immutable)
 )]
 pub struct RelativeMode;
@@ -70,7 +70,7 @@ impl AddressingMode for RelativeMode {
 }
 
 #[cfg_attr(
-    feature = "zero_copy",
+    feature = "zerocopy",
     derive(::zerocopy::FromBytes, ::zerocopy::KnownLayout, ::zerocopy::Immutable)
 )]
 pub struct SliceHandle<T, Mode: AddressingMode> {

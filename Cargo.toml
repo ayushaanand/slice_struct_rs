@@ -34,4 +34,5 @@ harness = false
 
 [features]
 zerocopy = ["dep:zerocopy"]
-zero_copy = ["zerocopy"]
+arena = ["slice_struct_macro/arena"]
+

@@ -1,3 +1,4 @@
+#![cfg(feature = "arena")]
 use slice_struct::{slice_struct, ArenaSlice, ArenaDescriptor};
 use std::cell::RefCell;
 
@@ -27,3 +28,4 @@ fn test_cell_arena() {
         view.ys[0] = 99;
     }
 }
+

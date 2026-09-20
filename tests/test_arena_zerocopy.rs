@@ -1,4 +1,5 @@
-#![cfg(feature = "zero_copy")]
+#![cfg(feature = "arena")]
+#![cfg(feature = "zerocopy")]
 use slice_struct::{slice_struct, ArenaSlice, ArenaDescriptor};
 
 #[slice_struct(arena, zerocopy)]
@@ -40,3 +41,4 @@ fn test_zerocopy_arena_populated() {
         assert_eq!(&*recovered.view().inners.at(i).ys, &[10, 10]);
     }
 }
+

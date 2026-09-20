@@ -224,7 +224,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
 
     let zerocopy_derive = if input.zerocopy {
         quote! {
-            #[cfg_attr(feature = "zero_copy", derive(
+            #[cfg_attr(feature = "zerocopy", derive(
                 ::slice_struct::__private::zerocopy::FromBytes,
                 ::slice_struct::__private::zerocopy::IntoBytes,
                 ::slice_struct::__private::zerocopy::Immutable,

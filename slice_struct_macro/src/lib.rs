@@ -22,6 +22,16 @@ pub fn slice_struct(attr: TokenStream, item: TokenStream) -> TokenStream {
     parsed.unpin = unpin;
     parsed.zerocopy = zerocopy;
     parsed.is_arena = arena;
+    
+    #[cfg(not(feature = "arena"))]
+    {
+        if parsed.is_arena || parsed.slice_fields.iter().any(|f| matches!(f, parse::SliceField::Arena { .. })) {
+            return syn::Error::new(proc_macro2::Span::call_site(), "The arena feature must be enabled in Cargo.toml to use nested Arena slices.")
+                .to_compile_error()
+                .into();
+        }
+    }
+    
     let expanded = codegen::generate(&parsed);
     expanded.into()
 }

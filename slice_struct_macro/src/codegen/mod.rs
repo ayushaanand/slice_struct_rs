@@ -29,7 +29,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
 
     let zerocopy_methods = if input.zerocopy {
         quote! {
-            #[cfg(feature = "zero_copy")]
+            #[cfg(feature = "zerocopy")]
             impl #impl_generics #struct_name #ty_generics #where_clause {
                 #[doc = "Safely cast a byte slice into a reference of this struct."]
                 pub fn ref_from_bytes(bytes: &[u8]) -> ::core::option::Option<&Self> {

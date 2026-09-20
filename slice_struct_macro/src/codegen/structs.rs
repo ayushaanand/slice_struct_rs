@@ -70,7 +70,7 @@ pub fn generate(input: &SliceStructInput) -> (TokenStream, TokenStream) {
     let inner_struct_name = format_ident!("{}__Inner", struct_name);
 
     let zerocopy_derives_inner = if input.zerocopy {
-        quote! { #[cfg_attr(feature = "zero_copy", derive(::slice_struct::__private::zerocopy::FromBytes, ::slice_struct::__private::zerocopy::KnownLayout, ::slice_struct::__private::zerocopy::Immutable))] }
+        quote! { #[cfg_attr(feature = "zerocopy", derive(::slice_struct::__private::zerocopy::FromBytes, ::slice_struct::__private::zerocopy::KnownLayout, ::slice_struct::__private::zerocopy::Immutable))] }
     } else {
         quote! {}
     };

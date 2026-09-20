@@ -1,3 +1,4 @@
+#![cfg(feature = "arena")]
 #![allow(unused_imports)]
 
 use std::cell::RefCell;
@@ -139,3 +140,4 @@ fn test_nested_drop() {
     // 3 outer * 2 inner = 6 dropped!
     assert_eq!(counter.load(Ordering::SeqCst), 6);
 }
+

@@ -1,3 +1,4 @@
+#![cfg(feature = "arena")]
 #![allow(unused_imports)]
 use slice_struct::{ArenaDescriptor, ArenaSlice, slice_struct};
 
@@ -33,3 +34,4 @@ fn test_arena_zero_len() {
         assert_eq!(out2.view().d.at(i).b.len(), 0);
     }
 }
+
