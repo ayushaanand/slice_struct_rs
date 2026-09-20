@@ -4,7 +4,7 @@ use quote::{format_ident, quote};
 
 pub fn generate(input: &SliceStructInput) -> TokenStream {
     let struct_name = &input.struct_name;
-    let _vis = &input.vis;
+    let vis = &input.vis;
     let arena_name = format_ident!("{}Arena", struct_name);
     let inner_struct_name = format_ident!("{}__Inner", struct_name);
     let layout_helper = format_ident!("{}_LayoutHelper", struct_name);
@@ -12,9 +12,11 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     let view_mut_name = format_ident!("{}ViewMut", struct_name);
 
     let mut arena_fields = quote! {};
+    let mut arena_fn_args = quote! {};
+    let mut arena_fn_init = quote! {};
     let mut calc_args = quote! {};
 
-    let (_, ty_generics, _) = input.generics.split_for_impl();
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let mut init_data_tuple = quote! {};
     let mut write_def_stmts = quote! {};
 
@@ -50,6 +52,8 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         match field {
             SliceField::Flat { ty, .. } => {
                 arena_fields.extend(quote! { pub #len_ident: usize, });
+                arena_fn_args.extend(quote! { #len_ident: usize, });
+                arena_fn_init.extend(quote! { #len_ident, });
                 calc_args.extend(quote! { self.#len_ident, });
                 init_data_tuple
                     .extend(quote! { <#ty as ::slice_struct::__private::InlineSlice>::Element, });
@@ -81,6 +85,11 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
                     pub #arena_ident: <#inner_ty as ::slice_struct::ArenaElement>::Arena,
                     pub #len_ident: usize,
                 });
+                arena_fn_args.extend(quote! {
+                    #len_ident: usize,
+                    #arena_ident: <#inner_ty as ::slice_struct::ArenaElement>::Arena,
+                });
+                arena_fn_init.extend(quote! { #len_ident, #arena_ident, });
                 calc_args.extend(quote! { self.#len_ident, &self.#arena_ident, });
                 init_data_tuple.extend(quote! { <<#inner_ty as ::slice_struct::ArenaElement>::Arena as ::slice_struct::ArenaDescriptor>::InitData, });
 
@@ -130,7 +139,10 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let internal_id = format_ident!("__{}", id);
 
         let state_val = match field {
-            crate::parse::SliceField::Flat { .. } => quote! { &() },
+            crate::parse::SliceField::Flat { .. } => {
+                let state_id = format_ident!("__{}_state", id);
+                quote! { &*(ptr.add(::core::mem::offset_of!(#inner_struct_name #ty_generics, #state_id)) as *const _) }
+            },
             crate::parse::SliceField::Arena { .. } => {
                 let arena_id = format_ident!("{}_arena", id);
                 quote! { &self.#arena_id }
@@ -187,7 +199,10 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         let internal_id = format_ident!("__{}", id);
         let ty = field.ty();
         let state_val = match field {
-            crate::parse::SliceField::Flat { .. } => quote! { () },
+            crate::parse::SliceField::Flat { .. } => {
+                let state_id = format_ident!("__{}_state", id);
+                quote! { *(base_ptr.add(::core::mem::offset_of!(#inner_struct_name #ty_generics, #state_id)) as *const _) }
+            },
             crate::parse::SliceField::Arena { .. } => {
                 let arena_id = format_ident!("{}_arena", id);
                 quote! { arena.#arena_id }
@@ -207,9 +222,32 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         });
     }
 
+    let zerocopy_derive = if input.zerocopy {
+        quote! {
+            #[cfg_attr(feature = "zero_copy", derive(
+                ::slice_struct::__private::zerocopy::FromBytes,
+                ::slice_struct::__private::zerocopy::IntoBytes,
+                ::slice_struct::__private::zerocopy::Immutable,
+                ::slice_struct::__private::zerocopy::KnownLayout
+            ))]
+        }
+    } else {
+        quote! {}
+    };
+
     quote! {
+        #zerocopy_derive
         pub struct #arena_name {
             #arena_fields
+        }
+
+        impl #impl_generics #struct_name #ty_generics #where_clause {
+            #[doc = "Initialize the arena descriptor for this struct."]
+            #vis fn init_arena(#arena_fn_args) -> #arena_name {
+                #arena_name {
+                    #arena_fn_init
+                }
+            }
         }
 
         impl ::core::clone::Clone for #arena_name {
@@ -258,6 +296,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
             #[inline]
             unsafe fn project_view_mut<'a>(ptr: *mut u8, arena: &'a Self::Arena) -> <Self::Arena as ::slice_struct::ArenaDescriptor>::ViewMut<'a> {
                 let base_mut = ptr;
+                let base_ptr = ptr as *const u8;
                 #view_mut_name {
                     #project_mut_fields
                 }

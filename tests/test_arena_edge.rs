@@ -17,7 +17,7 @@ pub struct EmptyOuter {
 
 #[test]
 fn test_arena_zero_len() {
-    let arena_empty = EmptyInnerArena { b_len: 0 };
+    let arena_empty = EmptyInner::init_arena(0);
 
     // 0 elements in outer
     let out1 = EmptyOuter::init_def(1, arena_empty.clone(), ((2, 3), 0)).in_box();

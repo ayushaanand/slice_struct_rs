@@ -1,4 +1,6 @@
 #![allow(unused_imports)]
+
+use std::cell::RefCell;
 use slice_struct::{ArenaDescriptor, ArenaSlice, slice_struct};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -19,7 +21,7 @@ pub struct BasicOuter {
 
 #[test]
 fn test_basic_arena() {
-    let arena = BasicArena { ys_len: 3 };
+    let arena = Basic::init_arena(3);
     let b = BasicOuter::init_def(99, arena, ((10, 1), 2)).in_box();
     assert_eq!(*b.view().x, 99);
     assert_eq!(b.view().ys.len(), 2);
@@ -48,11 +50,8 @@ pub struct DeepOuter {
 
 #[test]
 fn test_deep_nesting() {
-    let inner_arena = DeepInnerArena { elems_len: 2 };
-    let middle_arena = DeepMiddleArena {
-        inners_arena: inner_arena,
-        inners_len: 2,
-    };
+    let inner_arena = DeepInner::init_arena(2);
+    let middle_arena = DeepMiddle::init_arena(2, inner_arena);
 
     let outer = DeepOuter::init_def(middle_arena, (((10,),), 3)).in_box();
 
@@ -72,7 +71,7 @@ pub struct Mixed {
 
 #[test]
 fn test_mixed_fields() {
-    let arena = BasicArena { ys_len: 2 };
+    let arena = Basic::init_arena(2);
     let m = Mixed::init_def((100, 2), arena, ((42, 5), 2)).in_box();
 
     assert_eq!(m.view().normal.len(), 2);
@@ -86,18 +85,15 @@ fn test_mixed_fields() {
 
 #[test]
 fn test_arena_zero_len() {
-    let inner_arena = DeepInnerArena { elems_len: 0 };
-    let middle_arena = DeepMiddleArena {
-        inners_arena: inner_arena,
-        inners_len: 0,
-    };
+    let inner_arena = DeepInner::init_arena(0);
+    let middle_arena = DeepMiddle::init_arena(0, inner_arena);
     let outer = DeepOuter::init_def(middle_arena, (((10,),), 0)).in_box();
     assert_eq!(outer.view().inners.len(), 0);
 }
 
 #[test]
 fn test_arena_mutation() {
-    let arena = BasicArena { ys_len: 3 };
+    let arena = Basic::init_arena(3);
     let mut b = BasicOuter::init_def(99, arena, ((10, 1), 2)).in_box();
     b.as_mut().view_mut().ys.at_mut(1).ys[1] = 99;
     assert_eq!(&*b.view().ys.at(1).ys, &[1, 99, 1]);
@@ -134,7 +130,7 @@ fn test_nested_drop() {
             id: 1,
             arc: counter.clone(),
         };
-        let arena = DropInnerArena { counters_len: 2 };
+        let arena = DropInner::init_arena(2);
         let outer = DropOuter::init_def(arena, ((c1,), 3)).in_box();
         assert_eq!(outer.view().inners.len(), 3);
         assert_eq!(outer.view().inners.at(0).counters.len(), 2);
