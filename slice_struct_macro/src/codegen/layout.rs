@@ -1,4 +1,4 @@
-use crate::parse::{SliceField, SliceStructInput};
+﻿use crate::parse::{SliceField, SliceStructInput};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
@@ -32,7 +32,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         }
     }
 
-    let mut align_types = quote! {};
+        let mut align_types = quote! {};
     for field in &input.sized_fields {
         let ty = &field.ty;
         align_types.extend(quote! { #ty, });
@@ -42,13 +42,19 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     } else {
         quote! { ::slice_struct::__private::AbsoluteMode }
     };
-    for field in &input.slice_fields {
-        let ty = field.ty();
+    if input.shared_layout {
         align_types.extend(quote! {
-            <#ty as ::slice_struct::__private::InlineSlice>::State,
-            <#ty as ::slice_struct::__private::InlineSlice>::Element,
-            ::slice_struct::__private::SliceHandle<<#ty as ::slice_struct::__private::InlineSlice>::Element, #mode>,
+            ::std::sync::Arc<::slice_struct::LayoutTable<#struct_name #ty_generics>>,
         });
+    } else {
+        for field in &input.slice_fields {
+            let ty = field.ty();
+            align_types.extend(quote! {
+                <#ty as ::slice_struct::__private::InlineSlice>::State,
+                <#ty as ::slice_struct::__private::InlineSlice>::Element,
+                ::slice_struct::__private::SliceHandle<<#ty as ::slice_struct::__private::InlineSlice>::Element, #mode>,
+            });
+        }
     }
     align_types.extend(quote! { <#mode as ::slice_struct::__private::AddressingMode>::Marker, });
 

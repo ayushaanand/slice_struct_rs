@@ -68,7 +68,7 @@ mod init;
 mod inline;
 mod wrappers;
 
-#[doc(hidden)]
+
 pub mod __private {
     
 #[cfg(feature = "arena")]
@@ -125,7 +125,7 @@ pub use shared::*;
 
 
 /// Detailed user guides detailing API usage and layout capabilities.
-mod guide {
+pub mod guide {
     #[doc = include_str!("../docs/guide/01_initialization.md")]
     pub mod initialization {}
 

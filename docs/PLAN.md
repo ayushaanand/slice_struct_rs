@@ -65,7 +65,7 @@ When the user calls `.view().handler`, the struct simply dereferences the fat po
 ---
 
 ## ~~Feature 4: Position-Independent Layouts & Zero-Copy (`#[slice_struct(unpin)]`)~~ (Completed in v0.3.0)
-## ~~Feature 5: Dynamic Size Tables (VTable Arenas)~~ (Completed in v0.5.0)
+## ~~Feature 5: Dynamic Size Tables (VTable Arenas)~~ (Completed in v0.4.0)
 
 
 ## Feature 6: Custom Allocator APIs (`std::alloc::Allocator`)
