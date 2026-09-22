@@ -40,6 +40,7 @@ pub struct SliceStructInput {
     pub unpin: bool,
     pub zerocopy: bool,
     pub is_arena: bool,
+    pub shared_layout: bool,
 }
 
 pub fn parse_slice_struct(mut input: ItemStruct) -> SliceStructInput {
@@ -104,5 +105,6 @@ pub fn parse_slice_struct(mut input: ItemStruct) -> SliceStructInput {
         unpin: false,
         zerocopy: false,
         is_arena: false,
+        shared_layout: false,
     }
 }

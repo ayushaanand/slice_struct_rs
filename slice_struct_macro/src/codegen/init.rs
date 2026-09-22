@@ -10,6 +10,134 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     
     let init_iter_ident = format_ident!("__{}InitIter", struct_name);
     let init_def_ident = format_ident!("__{}InitDef", struct_name);
+    if input.shared_layout {
+        let init_def_ident = format_ident!("__{}InitDef", struct_name);
+        let table_type = quote! { ::slice_struct::LayoutTable<#struct_name #ty_generics> };
+        
+        let mut def_fields = quote! { table: ::std::sync::Arc<#table_type>, };
+        let mut def_fn_args = quote! { table: ::std::sync::Arc<#table_type>, };
+        let mut def_fn_init = quote! { table, };
+        let mut def_write_slices = quote! {};
+        let mut def_bounds = quote! {};
+        
+        for field in &input.sized_fields {
+            let ident = field.ident.as_ref().unwrap();
+            let ty = &field.ty;
+            def_fields.extend(quote! { pub #ident: #ty, });
+            def_fn_args.extend(quote! { #ident: #ty, });
+            def_fn_init.extend(quote! { #ident, });
+            
+            let internal_ident = format_ident!("__{}", ident);
+            def_write_slices.extend(quote! {
+                ::core::ptr::write(::core::ptr::addr_of_mut!((*fat_ptr).0.#internal_ident), self.#ident);
+            });
+        }
+        
+        // Write the table pointer
+        def_write_slices.extend(quote! {
+            ::core::ptr::write(::core::ptr::addr_of_mut!((*fat_ptr).0.__table), self.table.clone());
+        });
+        
+        for field in &input.slice_fields {
+            let ident = field.ident();
+            let ty = field.ty();
+            let len_ident = format_ident!("{}_len", ident);
+            let offset_ident = format_ident!("{}_offset", ident);
+            
+            def_bounds.extend(quote! { <#ty as ::slice_struct::__private::InlineSlice>::Element: ::core::clone::Clone, });
+            
+            match field {
+                crate::parse::SliceField::Flat { .. } => {
+                    def_fields.extend(quote! { pub #ident: <#ty as ::slice_struct::__private::InlineSlice>::Element, });
+                    def_fn_args.extend(quote! { #ident: <#ty as ::slice_struct::__private::InlineSlice>::Element, });
+                    def_fn_init.extend(quote! { #ident, });
+                    
+                    def_write_slices.extend(quote! {
+                        let def_len = self.table.data.#len_ident;
+                        let field_ptr = ptr.add(self.table.data.#offset_ident).cast::<<#ty as ::slice_struct::__private::InlineSlice>::Element>();
+                        if def_len > 0 {
+                            let def_val = self.#ident;
+                            for j in 0..def_len - 1 {
+                                ::core::ptr::write(field_ptr.add(j), ::core::clone::Clone::clone(&def_val));
+                            }
+                            ::core::ptr::write(field_ptr.add(def_len - 1), def_val);
+                        }
+                    });
+                }
+                crate::parse::SliceField::Arena { inner_ty, .. } => {
+                    let state_ident = format_ident!("{}_state", ident);
+                    def_fields.extend(quote! { pub #ident: <<#inner_ty as ::slice_struct::ArenaElement>::Arena as ::slice_struct::ArenaDescriptor>::InitData, });
+                    def_fn_args.extend(quote! { #ident: <<#inner_ty as ::slice_struct::ArenaElement>::Arena as ::slice_struct::ArenaDescriptor>::InitData, });
+                    def_fn_init.extend(quote! { #ident, });
+                    
+                    def_write_slices.extend(quote! {
+                        let def_len = self.table.data.#len_ident;
+                        let field_ptr = ptr.add(self.table.data.#offset_ident).cast::<<#ty as ::slice_struct::__private::InlineSlice>::Element>();
+                        if def_len > 0 {
+                            let def_val = &self.#ident;
+                            let stride = ::slice_struct::ArenaDescriptor::instance_size(&self.table.data.#state_ident);
+                            for j in 0..def_len {
+                                ::slice_struct::ArenaDescriptor::write_instance_def(&self.table.data.#state_ident, field_ptr.add(j * stride), def_val);
+                            }
+                        }
+                    });
+                }
+            }
+        }
+        
+        let mut def_generics = input.generics.clone();
+        for field in &input.slice_fields {
+            let ty = field.ty();
+            def_generics.make_where_clause().predicates.push(::syn::parse_quote!(<#ty as ::slice_struct::__private::InlineSlice>::Element: ::core::clone::Clone));
+        }
+        let (_, _, def_where_clause_with_clone) = def_generics.split_for_impl();
+        
+        let inner_struct_name = format_ident!("{}__Inner", struct_name);
+        let make_fat_ptr_len = quote! {
+            self.table.total_layout().size() - ::core::mem::offset_of!(#inner_struct_name #ty_generics, __tail_start)
+        };
+
+        return quote! {
+            #[doc(hidden)]
+            pub struct #init_def_ident #def_generics {
+                #def_fields
+                _marker: ::core::marker::PhantomData<#struct_name #ty_generics>,
+            }
+            
+            unsafe impl #impl_generics ::slice_struct::__private::SliceInit<#struct_name #ty_generics> for #init_def_ident #ty_generics
+            #def_where_clause_with_clone
+            {
+                fn layout(&self) -> ::std::alloc::Layout {
+                    self.table.total_layout()
+                }
+                
+                fn make_fat_ptr(&self, ptr: *mut u8) -> *mut #struct_name #ty_generics {
+                    let len = #make_fat_ptr_len;
+                    ::core::ptr::slice_from_raw_parts_mut(ptr as *mut (), len) as *mut #struct_name #ty_generics
+                }
+                unsafe fn fixup(_ptr: *mut #struct_name #ty_generics) {}
+                
+                unsafe fn write_data(self, ptr: *mut u8) -> ::slice_struct::__private::OwnedDst<#struct_name #ty_generics> {
+                    let layout = self.table.total_layout();
+                    let fat_ptr = self.make_fat_ptr(ptr);
+                    #def_write_slices
+                    ::slice_struct::__private::OwnedDst {
+                        ptr: ::core::ptr::NonNull::new_unchecked(fat_ptr),
+                        layout
+                    }
+                }
+            }
+            
+            impl #impl_generics #struct_name #ty_generics #where_clause {
+                #[doc = "Initialize this struct from cloned values using a shared layout table, returning a builder."]
+                #vis fn init_with_table(#def_fn_args) -> ::slice_struct::SliceBuilder<Self, impl ::slice_struct::__private::SliceInit<Self>>
+                #def_where_clause_with_clone
+                {
+                    ::slice_struct::SliceBuilder::new(#init_def_ident { #def_fn_init _marker: ::core::marker::PhantomData })
+                }
+            }
+        };
+    }
     let layout_helper_ident = format_ident!("{}_LayoutHelper", struct_name);
 
     let mode = if input.unpin {

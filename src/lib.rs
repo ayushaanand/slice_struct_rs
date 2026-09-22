@@ -149,6 +149,7 @@ mod wrappers;
 
 #[doc(hidden)]
 pub mod __private {
+    
 #[cfg(feature = "arena")]
     pub use crate::arena::{ArenaDescriptor, ArenaElement};
     pub use crate::drop_guard::__DropGuard;
@@ -196,3 +197,7 @@ impl<T: AsViewMut + Unpin> UnpinViewMutExt for T {
         Pin::new(self).as_view_mut()
     }
 }
+
+mod shared;
+pub use shared::*;
+

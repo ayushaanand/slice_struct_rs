@@ -3,6 +3,7 @@ pub mod init;
 pub mod layout;
 pub mod structs;
 pub mod view;
+mod shared_layout;
 
 use crate::parse::SliceStructInput;
 use proc_macro2::TokenStream;
@@ -12,6 +13,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
     let (private_structs, public_structs) = structs::generate(input);
     let view = view::generate(input);
     let layout = layout::generate(input);
+    let (shared_structs, shared_impls) = shared_layout::generate(input);
     let init = if input.is_arena {
         quote::quote! {}
     } else {
@@ -58,7 +60,9 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
             #zerocopy_methods
             #view
             #arena_codegen
+            #shared_structs
             #layout
+                #shared_impls
             const _: () = {
                 #private_structs
                 #init
@@ -70,9 +74,11 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
             #zerocopy_methods
             #view
             #arena_codegen
+            #shared_structs
             const _: () = {
                 #private_structs
                 #layout
+                #shared_impls
                 #init
             };
         }

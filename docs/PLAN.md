@@ -65,9 +65,8 @@ When the user calls `.view().handler`, the struct simply dereferences the fat po
 ---
 
 ## ~~Feature 4: Position-Independent Layouts & Zero-Copy (`#[slice_struct(unpin)]`)~~ (Completed in v0.3.0)
-## Feature 5: Dynamic Size Tables (VTable Arenas)
-For ECS or Data-Oriented Design pools where millions of packets share identical slice lengths (e.g., all payloads are exactly 1,024 bytes), storing the `length` and `offset` metadata inside *every* packet wastes massive amounts of RAM.
-We will introduce an Arena/VTable design (`#[slice_struct(shared_layout)]`) where the metadata is extracted into a shared static table. The struct prefix drops to **0 bytes** of metadata, transforming into a pure sequence of elements. This unlocks the Holy Grail of Rust memory design: **Nested DST Slices** (e.g., `#[slice] packets: [InnerPacket]`), allowing multi-dimensional contiguous memory pools.
+## ~~Feature 5: Dynamic Size Tables (VTable Arenas)~~ (Completed in v0.5.0)
+
 
 ## Feature 6: Custom Allocator APIs (`std::alloc::Allocator`)
 To support ultra-low-latency game engines and High-Frequency Trading (HFT) platforms, we will hook into Rust's nightly `Allocator` API. By modifying `SliceBuilder` to accept generic allocators (e.g., `in_box_in<A: Allocator>(alloc: A)`), users can pack dynamic multi-slice structs directly into high-speed bump arenas (`bumpalo`), driving allocation overhead essentially to `0 ns`.

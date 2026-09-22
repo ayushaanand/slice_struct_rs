@@ -40,33 +40,65 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
         view_mut_init.extend(quote! { #ident: &mut this.0.#internal_ident, });
     }
 
-    for field in &input.slice_fields {
-        let ident = field.ident();
-        let ty = field.ty();
-        let fvis = match field {
-            crate::parse::SliceField::Flat { vis, .. }
-            | crate::parse::SliceField::Arena { vis, .. } => vis,
-        };
-        let internal_ident = format_ident!("__{}", ident);
-        let state_ident = format_ident!("__{}_state", ident);
+    if input.shared_layout {
+        for field in &input.slice_fields {
+            let ident = field.ident();
+            let ty = field.ty();
+            let fvis = match field {
+                crate::parse::SliceField::Flat { vis, .. }
+                | crate::parse::SliceField::Arena { vis, .. } => vis,
+            };
+            let len_ident = format_ident!("{}_len", ident);
+            let offset_ident = format_ident!("{}_offset", ident);
+            let state_ident = format_ident!("{}_state", ident);
+            
+            view_fields.extend(quote! { #fvis #ident: <#ty as ::slice_struct::__private::InlineSlice>::View<'__a>, });
+            view_init.extend(quote! {
+                #ident: unsafe {
+                    let ptr = base_ptr.add(this.0.__table.data.#offset_ident).cast::<<#ty as ::slice_struct::__private::InlineSlice>::Element>();
+                    let slice_ptr = ::core::ptr::slice_from_raw_parts_mut(ptr, this.0.__table.data.#len_ident) ;
+                    <#ty as ::slice_struct::__private::InlineSlice>::project(&this.0.__table.data.#state_ident, ::core::ptr::NonNull::new_unchecked(slice_ptr))
+                },
+            });
+            
+            view_mut_fields.extend(quote! { #fvis #ident: <#ty as ::slice_struct::__private::InlineSlice>::ViewMut<'__a>, });
+            view_mut_init.extend(quote! {
+                #ident: unsafe {
+                    let ptr = base_ptr.add(this.0.__table.data.#offset_ident).cast::<<#ty as ::slice_struct::__private::InlineSlice>::Element>();
+                    let slice_ptr = ::core::ptr::slice_from_raw_parts_mut(ptr, this.0.__table.data.#len_ident) ;
+                    <#ty as ::slice_struct::__private::InlineSlice>::project_mut(&this.0.__table.data.#state_ident, ::core::ptr::NonNull::new_unchecked(slice_ptr))
+                },
+            });
+        }
+    } else {
+        for field in &input.slice_fields {
+            let ident = field.ident();
+            let ty = field.ty();
+            let fvis = match field {
+                crate::parse::SliceField::Flat { vis, .. }
+                | crate::parse::SliceField::Arena { vis, .. } => vis,
+            };
+            let internal_ident = format_ident!("__{}", ident);
+            let state_ident = format_ident!("__{}_state", ident);
 
-        view_fields.extend(
-            quote! { #fvis #ident: <#ty as ::slice_struct::__private::InlineSlice>::View<'__a>, },
-        );
-        view_init.extend(quote! {
-            #ident: <#ty as ::slice_struct::__private::InlineSlice>::project(
-                &this.0.#state_ident,
-                this.0.#internal_ident.as_non_null(base_ptr)
-            ),
-        });
+            view_fields.extend(
+                quote! { #fvis #ident: <#ty as ::slice_struct::__private::InlineSlice>::View<'__a>, },
+            );
+            view_init.extend(quote! {
+                #ident: <#ty as ::slice_struct::__private::InlineSlice>::project(
+                    &this.0.#state_ident,
+                    this.0.#internal_ident.as_non_null(base_ptr)
+                ),
+            });
 
-        view_mut_fields.extend(quote! { #fvis #ident: <#ty as ::slice_struct::__private::InlineSlice>::ViewMut<'__a>, });
-        view_mut_init.extend(quote! {
-            #ident: <#ty as ::slice_struct::__private::InlineSlice>::project_mut(
-                &this.0.#state_ident,
-                this.0.#internal_ident.as_non_null(base_ptr)
-            ),
-        });
+            view_mut_fields.extend(quote! { #fvis #ident: <#ty as ::slice_struct::__private::InlineSlice>::ViewMut<'__a>, });
+            view_mut_init.extend(quote! {
+                #ident: <#ty as ::slice_struct::__private::InlineSlice>::project_mut(
+                    &this.0.#state_ident,
+                    this.0.#internal_ident.as_non_null(base_ptr)
+                ),
+            });
+        }
     }
 
     let unpin_methods = if input.unpin {
@@ -96,7 +128,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
 
             fn as_view<'__a>(&'__a self) -> Self::View<'__a> {
                 let this = self;
-                let base_ptr = this as *const _ as *const u8;
+                let base_ptr = this as *const _ as *const u8 as *mut u8;
                 #view_ident {
                     #view_init
                 }
@@ -109,7 +141,7 @@ pub fn generate(input: &SliceStructInput) -> TokenStream {
             fn as_view_mut<'__a>(self: ::core::pin::Pin<&'__a mut Self>) -> Self::ViewMut<'__a> {
                 unsafe {
                     let this = self.get_unchecked_mut();
-                    let base_ptr = this as *const _ as *const u8;
+                    let base_ptr = this as *const _ as *const u8 as *mut u8;
                     #view_mut_ident {
                         #view_mut_init
                     }

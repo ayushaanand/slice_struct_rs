@@ -15,13 +15,15 @@ mod parse;
 pub fn slice_struct(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr_str = attr.to_string();
     let zerocopy = attr_str.contains("zerocopy");
-    let unpin = attr_str.contains("unpin") || zerocopy;
+    let shared_layout = attr_str.contains("shared_layout");
+    let unpin = attr_str.contains("unpin") || zerocopy || shared_layout;
     let arena = attr_str.contains("arena");
     let input = parse_macro_input!(item as syn::ItemStruct);
     let mut parsed = parse::parse_slice_struct(input);
     parsed.unpin = unpin;
     parsed.zerocopy = zerocopy;
     parsed.is_arena = arena;
+    parsed.shared_layout = shared_layout;
     
     #[cfg(not(feature = "arena"))]
     {

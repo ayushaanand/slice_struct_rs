@@ -3,6 +3,8 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
 pub fn generate(input: &SliceStructInput) -> (TokenStream, TokenStream) {
+    let generics = &input.generics;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let struct_name = &input.struct_name;
     let vis = &input.vis;
 
@@ -21,18 +23,24 @@ pub fn generate(input: &SliceStructInput) -> (TokenStream, TokenStream) {
         quote! { ::slice_struct::__private::AbsoluteMode }
     };
 
-    for (i, field) in input.slice_fields.iter().enumerate() {
-        let ident = field.ident();
-        let ty = field.ty();
-        let align_ident = format_ident!("__align_{}", i);
-        let internal_ident = format_ident!("__{}", ident);
-        let state_ident = format_ident!("__{}_state", ident);
-
+    if input.shared_layout {
         actual_fields.extend(quote! {
-            #[doc(hidden)] #state_ident: <#ty as ::slice_struct::__private::InlineSlice>::State,
-            #[doc(hidden)] #align_ident: [<#ty as ::slice_struct::__private::InlineSlice>::Element; 0],
-            #[doc(hidden)] #internal_ident: ::slice_struct::__private::SliceHandle<<#ty as ::slice_struct::__private::InlineSlice>::Element, #mode>,
+            #[doc(hidden)] __table: ::std::sync::Arc<::slice_struct::LayoutTable<#struct_name #ty_generics>>,
         });
+    } else {
+        for (i, field) in input.slice_fields.iter().enumerate() {
+            let ident = field.ident();
+            let ty = field.ty();
+            let align_ident = format_ident!("__align_{}", i);
+            let internal_ident = format_ident!("__{}", ident);
+            let state_ident = format_ident!("__{}_state", ident);
+
+            actual_fields.extend(quote! {
+                #[doc(hidden)] #state_ident: <#ty as ::slice_struct::__private::InlineSlice>::State,
+                #[doc(hidden)] #align_ident: [<#ty as ::slice_struct::__private::InlineSlice>::Element; 0],
+                #[doc(hidden)] #internal_ident: ::slice_struct::__private::SliceHandle<<#ty as ::slice_struct::__private::InlineSlice>::Element, #mode>,
+            });
+        }
     }
 
     let data_tail_type = if input.zerocopy {
@@ -47,22 +55,41 @@ pub fn generate(input: &SliceStructInput) -> (TokenStream, TokenStream) {
         #[doc(hidden)] __data_tail: [#data_tail_type]
     };
 
-    let generics = &input.generics;
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    
 
     let mut drop_slices = quote! {};
-    for field in &input.slice_fields {
-        let ident = field.ident();
-        let ty = field.ty();
-        let internal_ident = format_ident!("__{}", ident);
-        let state_ident = format_ident!("__{}_state", ident);
-        drop_slices.extend(quote! {
-            unsafe {
-                let base_ptr = self as *mut _ as *mut u8;
-                let data = self.0.#internal_ident.as_non_null(base_ptr);
-                <#ty as ::slice_struct::__private::InlineSlice>::drop_slice(&self.0.#state_ident, data);
-            }
-        });
+    if input.shared_layout {
+        for field in &input.slice_fields {
+            let ident = field.ident();
+            let ty = field.ty();
+            let len_ident = format_ident!("{}_len", ident);
+            let offset_ident = format_ident!("{}_offset", ident);
+            let state_ident = format_ident!("{}_state", ident);
+            drop_slices.extend(quote! {
+                unsafe {
+                    let base_ptr = self as *mut _ as *mut u8;
+                    let table = &self.0.__table;
+                    let ptr = base_ptr.add(table.data.#offset_ident).cast::<<#ty as ::slice_struct::__private::InlineSlice>::Element>();
+                    let slice_ptr = ::core::ptr::slice_from_raw_parts_mut(ptr, table.data.#len_ident);
+                    let data = ::core::ptr::NonNull::new_unchecked(slice_ptr);
+                    <#ty as ::slice_struct::__private::InlineSlice>::drop_slice(&table.data.#state_ident, data);
+                }
+            });
+        }
+    } else {
+        for field in &input.slice_fields {
+            let ident = field.ident();
+            let ty = field.ty();
+            let internal_ident = format_ident!("__{}", ident);
+            let state_ident = format_ident!("__{}_state", ident);
+            drop_slices.extend(quote! {
+                unsafe {
+                    let base_ptr = self as *mut _ as *mut u8;
+                    let data = self.0.#internal_ident.as_non_null(base_ptr);
+                    <#ty as ::slice_struct::__private::InlineSlice>::drop_slice(&self.0.#state_ident, data);
+                }
+            });
+        }
     }
 
     let private_structs = quote! {};
