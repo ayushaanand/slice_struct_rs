@@ -23,7 +23,7 @@ impl ServerLog {
 
     /// Mutable method on a standard slice_struct REQUIRES Pin<&mut Self>
     pub fn write_buffer(self: Pin<&mut Self>, offset: usize, data: &[u8]) {
-        let mut v = self.view_mut();
+        let v = self.view_mut();
         let end = (offset + data.len()).min(v.buffer.len());
         let copy_len = end - offset;
         v.buffer[offset..end].copy_from_slice(&data[..copy_len]);
@@ -74,9 +74,9 @@ impl PlayerState {
     }
 
     /// Because shared_layout calculates offsets statically, it implements Unpin!
-    /// We can use standard &mut self and iew_mut_unpin().
+    /// We can use standard &mut self view_mut_unpin().
     pub fn give_item(&mut self, slot_index: usize, item_id: u32) -> Result<(), &'static str> {
-        let mut v = self.view_mut_unpin();
+        let v = self.view_mut_unpin();
         if slot_index >= v.inventory_slots.len() {
             return Err("Slot out of bounds");
         }

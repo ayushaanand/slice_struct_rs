@@ -1,5 +1,5 @@
-#![cfg(feature = "arena")]
-use slice_struct::{slice_struct, ArenaSlice, ArenaDescriptor};
+﻿#![cfg(feature = "arena")]
+use slice_struct::{slice_struct, ArenaDescriptor};
 use std::cell::RefCell;
 
 #[slice_struct(arena)]

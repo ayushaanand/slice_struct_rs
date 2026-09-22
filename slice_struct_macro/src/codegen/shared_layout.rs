@@ -1,8 +1,8 @@
-use crate::parse::SliceStructInput;
+﻿use crate::parse::SliceStructInput;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
-pub fn generate(input: &SliceStructInput) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+pub fn generate(input: &SliceStructInput) -> (TokenStream, TokenStream) {
     if !input.shared_layout {
         return (quote! {}, quote! {});
     }

@@ -15,7 +15,7 @@ fn test_shared_layout_basic() {
     assert_eq!(table.data.velocities_len, 3);
     
     let mut e1 = Entity::init_with_table(table.clone(), 1, 0.0, 1.0).in_box();
-    let mut e2 = Entity::init_with_table(table.clone(), 2, 5.0, 2.0).in_box();
+    let e2 = Entity::init_with_table(table.clone(), 2, 5.0, 2.0).in_box();
     
     // Check lengths
     assert_eq!(e1.view().positions.len(), 3);

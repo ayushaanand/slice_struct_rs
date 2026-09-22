@@ -43,7 +43,7 @@ impl<T> InlineSlice for [T] {
 
     #[inline]
     fn init_state() -> Self::State {
-        ()
+        
     }
 
     #[inline]
@@ -84,7 +84,7 @@ impl InlineSlice for str {
 
     #[inline]
     fn init_state() -> Self::State {
-        ()
+        
     }
 
     #[inline]

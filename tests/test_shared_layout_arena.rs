@@ -1,6 +1,6 @@
-#![cfg(feature = "arena")]
+﻿#![cfg(feature = "arena")]
 
-use slice_struct::{slice_struct, ArenaSlice, ArenaDescriptor};
+use slice_struct::{slice_struct, ArenaDescriptor};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

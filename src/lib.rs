@@ -1,140 +1,61 @@
+﻿#![allow(clippy::missing_safety_doc)]
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
 //! # slice_struct
 //!
 //! A Rust procedural macro for packing **multiple variable-length slices** and **complex stateful wrappers** into a single contiguous heap allocation.
 //!
-//! Normally, putting multiple dynamic arrays in a struct requires multiple `Vec`s, which spreads your data across multiple separate heap allocations. `slice_struct` packs everything inline into one contiguous block of memory, offering zero-cost access and perfect memory safety.
+//! Normally, putting multiple dynamic arrays in a struct requires multiple `Vec`s, which spreads your data across multiple separate heap allocations. `slice_struct` packs everything inline into one contiguous block of memory to guarantee data locality and reduce memory overhead.
 //!
-//! With version `0.3.0`, `slice_struct` now features:
-//! - **Universal Inline Slice Projection**: Wrap your slices in `Mutex`, `RefCell`, or `str` effortlessly with safe, disjoint borrow checking.
-//! - **Composable Allocation (SliceBuilder)**: Seamlessly instantiate structs into `Box`, `Arc`, `Rc`, or wrap them in DST locks directly without macro bloat.
+//! ## Quick Start
 //!
-//! ## Usage
-//!
-//! Add the dependency to your `Cargo.toml`:
+//! Add the dependency to your `Cargo.toml`. To use advanced features like nested arenas or binary parsing, enable the corresponding features:
 //!
 //! ```toml
 //! [dependencies]
-//! slice_struct = "0.3.1"
+//! slice_struct = { version = "0.4.0", features = ["arena", "zerocopy"] }
 //! ```
 //!
-//! ### 1. Defining and Reading
-//!
-//! Mark your dynamic fields with `#[slice]`. The macro securely encapsulates the internal layout to guarantee memory safety. Instead of manual heap management, you interact with your data safely through `.view()` and `.view_mut()`.
+//! Mark your dynamic fields with `#[slice]`.
 //!
 //! ```rust
 //! use slice_struct::slice_struct;
-//! use std::sync::Mutex;
 //!
 //! #[slice_struct]
 //! pub struct Packet {
 //!     pub id: u32,
-//!     #[slice] pub payload: [u8],            // Standard dynamic array
-//!     #[slice] pub flags: Mutex<[u32]>,      // Stateful wrapper!
-//!     #[slice] pub string_data: str,         // UTF-8 validated slice
+//!     #[slice] pub payload: [u8],
 //! }
 //!
-//! // Create a new packet, populating the slices from iterators (zero-clone)
-//! let p = Packet::init_iter(
-//!     42,                                // id
-//!     [10_u8, 20, 30].into_iter(),       // payload
-//!     [100_u32, 200_u32].into_iter(),    // flags (Mutex)
-//!     "hello".bytes(),                   // string_data (str)
-//! ).in_box();
+//! // 1. The macro generates `init_def`.
+//! // Arguments strictly follow the struct fields: (id_value, (payload_default_val, payload_len))
+//! let mut packet = Packet::init_def(42, (0, 10)).in_box();
 //!
-//! // Read fields via `.view()`
-//! let mut v = p.view();
-//! assert_eq!(*v.id, 42);
-//! assert_eq!(v.payload, &[10, 20, 30]);
-//! assert_eq!(v.string_data, "hello");
-//!
-//! // Mutex fields provide safe inner interior mutability from immutable views!
-//! v.flags[0] = 999;
-//! assert_eq!(&*v.flags, &[999, 200]);
+//! // 2. The macro generates `.view()` and `.view_mut()` for safe data access
+//! let mut v = packet.as_mut().view_mut();
+//! *v.id = 1;
+//! v.payload[0] = 255;
 //! ```
 //!
-//! ### 2. Mutating (Disjoint Borrowing)
+//! ## Guides
 //!
-//! To modify multiple distinct slices simultaneously, use `.as_mut().view_mut()`. This provides safe, disjoint mutable borrowing, meaning you can safely mutate one slice while interacting with another.
+//! Because `slice_struct` changes how your structs are allocated, the documentation split into dedicated guides focused on how to use the generated APIs.
 //!
-//! ```rust
-//! # use slice_struct::slice_struct;
-//! # use std::sync::Mutex;
-//! # #[slice_struct]
-//! # pub struct Packet {
-//! #     pub id: u32,
-//! #     #[slice] pub payload: [u8],            
-//! #     #[slice] pub flags: Mutex<[u32]>,      
-//! #     #[slice] pub string_data: str,         
-//! # }
-//! // Create a packet using default values and lengths (like vec![val; len])
-//! let mut p = Packet::init_def(1, (0_u8, 8), (0_u32, 4), (0_u8, 5)).in_box();
+//! - **[Initialization & Allocation](guide::initialization)**: Deep dive into `init_def`, `init_iter`, and composable allocations via `SliceBuilder` (`.in_box()`, `.in_arc()`, `.with_mutex()`).
+//! - **[Implementing Methods](guide::methods)**: Learn how to encapsulate your logic by writing `impl` blocks on your generated structs, and how to use disjoint mutable borrowing.
+//! - **[Shared Layouts & Unpin](guide::shared_layouts)**: Optimize memory for thousands of identical structs (ECS / Node graphs) using `#[slice_struct(shared_layout)]`, which natively unlocks `Unpin` standard methods.
+//! - **[Nested Arenas](guide::nested_arenas)**: Embed dynamically sized arrays *inside* other dynamic arrays seamlessly using `ArenaSlice<T>`. *(Requires `arena` feature)*
+//! - **[Zerocopy Parsing](guide::zerocopy)**: Safely cast binary byte buffers directly into viewable structs. *(Requires `zerocopy` feature)*
 //!
-//! let mut v = p.as_mut().view_mut();
-//!
-//! // Mutate data safely!
-//! v.payload[0] = 100;
-//! v.string_data.make_ascii_uppercase();
-//!
-//! // Rust guarantees safe disjoint borrowing natively!
-//! let p_ref: &mut [u8] = v.payload;
-//! let s_ref: &mut str = v.string_data;
-//!
-//! // Wait, wait! flags are accessed via interior mutability!
-//!
-//! v.flags[0] = 999;
-//! ```
-//!
-//! *(Note: `.as_mut()` is required because the macro returns a pinned pointer `Pin<Box<Self>>`, and standard Rust rules require you to explicitly borrow pinned boxes).*
-//!
-//! ### 3. Composable Allocation (`SliceBuilder`)
-//!
-//! You are not restricted to just `Box`. The `SliceBuilder` pattern allows you to route your allocations to `Arc` or `Rc`, and even lock the *entire struct* safely behind a DST `Mutex`.
-//!
-//! ```rust
-//! # use slice_struct::slice_struct;
-//! # use std::sync::Mutex;
-//! # #[slice_struct]
-//! # pub struct Packet {
-//! #     pub id: u32,
-//! #     #[slice] pub payload: [u8],            
-//! #     #[slice] pub flags: Mutex<[u32]>,      
-//! #     #[slice] pub string_data: str,         
-//! # }
-//! // Allocate directly into an Arc
-//! let arc = Packet::init_def(1, (0, 8), (0, 4), (0, 5)).in_arc();
-//! let cloned = arc.clone();
-//!
-//! // Lock the ENTIRE DST dynamically behind a Mutex inside an Arc
-//! let locked_arc = Packet::init_def(1, (0, 8), (0, 4), (0, 5))
-//!     .with_mutex()
-//!     .in_arc();
-//!
-//! // Multithreaded mutation!
-//! std::thread::spawn(move || {
-//!     let mut guard = locked_arc.lock();
-//!     guard.as_mut().view_mut().payload[0] = 42;
-//! });
-//! ```
-//!
-//! ## Features
-//!
-//! The `slice_struct` crate provides implementations for `InlineSlice` natively:
-//! * **`[T]`**: Raw contiguous dynamic arrays.
-//! * **`str`**: Dynamic string slices. Automatically validates UTF-8 upon initialization, guaranteeing zero-cost `&str` access during runtime.
-//! * **`Mutex<[T]>`**: Interior mutability over slices. Synchronizes parallel mutations over individual slices without needing to lock the entire struct.
-//! * **`RefCell<[T]>`**: Interior mutability for single-threaded usage.
+//! ---
 //!
 //! ## Limitations
 //!
 //! * **Named fields only:** Tuple and unit structs are not supported.
 //! * **Ordering:** `#[slice]` fields must follow plain fields in the struct definition.
-//! * **Pinning:** The resulting struct is `!Sized` and `!Unpin`, meaning it must live exclusively behind a pointer (like `Pin<Box<Self>>`) and cannot be moved in memory.
-//! * **Derives:** Standard `#[derive(Clone)]` is not safe. If cloning is needed, implement it manually by allocating a new pointer.
 //!
 //! ## License
 //!
 //! MIT OR Apache-2.0
-#[cfg(test)]
 extern crate self as slice_struct;
 
 pub use slice_struct_macro::slice_struct;
@@ -201,3 +122,22 @@ impl<T: AsViewMut + Unpin> UnpinViewMutExt for T {
 mod shared;
 pub use shared::*;
 
+
+
+/// Detailed user guides detailing API usage and layout capabilities.
+mod guide {
+    #[doc = include_str!("../docs/guide/01_initialization.md")]
+    pub mod initialization {}
+
+    #[doc = include_str!("../docs/guide/02_methods.md")]
+    pub mod methods {}
+
+    #[doc = include_str!("../docs/guide/03_shared_layouts.md")]
+    pub mod shared_layouts {}
+
+    #[doc = include_str!("../docs/guide/04_nested_arenas.md")]
+    pub mod nested_arenas {}
+
+    #[doc = include_str!("../docs/guide/05_zerocopy.md")]
+    pub mod zerocopy {}
+}

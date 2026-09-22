@@ -1,6 +1,6 @@
-#![cfg(feature = "arena")]
+﻿#![cfg(feature = "arena")]
 #![cfg(feature = "zerocopy")]
-use slice_struct::{slice_struct, ArenaSlice, ArenaDescriptor};
+use slice_struct::{slice_struct, ArenaDescriptor};
 
 #[slice_struct(arena, zerocopy)]
 pub struct ZeroInner {

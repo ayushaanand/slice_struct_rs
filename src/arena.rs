@@ -1,7 +1,11 @@
-use crate::inline::InlineSlice;
+﻿use crate::inline::InlineSlice;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
+#[diagnostic::on_unimplemented(
+    message = "Type `{Self}` cannot be used as an ArenaElement inside an ArenaSlice",
+    note = "Did you forget to add `#[slice_struct(arena)]` to the `{Self}` struct?"
+)]
 pub unsafe trait ArenaElement {
     type Arena: ArenaDescriptor;
     unsafe fn project_view<'a>(

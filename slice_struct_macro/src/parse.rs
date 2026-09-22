@@ -1,3 +1,4 @@
+﻿#![allow(clippy::collapsible_if)]
 use syn::{Field, Generics, Ident, ItemStruct, Type, Visibility};
 
 pub enum SliceField {
